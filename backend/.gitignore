@@ -1,0 +1,78 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C extensions
+*.so
+
+# 分发相关
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyCharm
+.idea/
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# 单元测试相关
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# SQLite数据库文件
+*.sqlite
+
+# Flask
+instance/
+.webassets-cache
+
+# 环境变量
+.env
+.env.prod
+.env-mysql
+.env-redis
+.venv
+venv/
+
+# 日志与临时文件
+logs/  
+*.log
+tmp/
+*.tar
+
+# Celery 相关文件
+celerybeat-schedule*
+celerybeat.pid
+worker*.log
+worker*.pid
+
+
