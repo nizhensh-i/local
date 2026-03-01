@@ -44,15 +44,59 @@
       </el-card>
       
       <!-- 错误提示 -->
-      <el-alert
-        v-if="error"
-        :title="error"
-        type="error"
-        show-icon
-        closable
-        @close="error = null"
-        class="error-alert"
-      />
+      <div v-if="error" class="error-container">
+        <el-alert
+          :title="error"
+          type="error"
+          show-icon
+          closable
+          @close="error = null"
+          class="error-alert"
+        />
+        
+        <!-- 视频检查信息 -->
+        <el-card v-if="videoCheckResult" class="check-result-card" shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <h3>视频文件检查</h3>
+            </div>
+          </template>
+          
+          <div v-if="videoCheckResult.issues && videoCheckResult.issues.length > 0" class="issues-list">
+            <h4>发现的问题：</h4>
+            <ul>
+              <li v-for="(issue, index) in videoCheckResult.issues" :key="index">
+                {{ issue }}
+              </li>
+            </ul>
+          </div>
+          
+          <div v-if="videoCheckResult.encoding_tips" class="encoding-tips">
+            <h4>解决建议：</h4>
+            <ol>
+              <li v-for="(tip, index) in videoCheckResult.encoding_tips" :key="index">
+                <code v-if="tip.includes('ffmpeg')">{{ tip }}</code>
+                <span v-else>{{ tip }}</span>
+              </li>
+            </ol>
+          </div>
+          
+          <div v-if="videoCheckResult.is_large_file" class="large-file-notice">
+            <el-icon><Warning /></el-icon>
+            <span>文件较大 ({{ videoCheckResult.size_formatted }})，可能需要更长的加载时间</span>
+          </div>
+        </el-card>
+        
+        <!-- 其他建议 -->
+        <div v-if="errorSuggestions.length > 0" class="suggestions">
+          <h4>其他建议：</h4>
+          <ul>
+            <li v-for="(suggestion, index) in errorSuggestions" :key="index">
+              {{ suggestion }}
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -83,7 +127,34 @@ export default {
       fileSize: '',
       modifyTime: '',
       error: null,
-      videoInfo: null
+      videoInfo: null,
+      videoCheckResult: null,
+      isCheckingVideo: false
+    }
+  },
+  
+  computed: {
+    errorSuggestions() {
+      if (!this.error) return []
+      
+      const suggestions = []
+      
+      if (this.error.includes('格式不支持') || this.error.includes('MEDIA_ERR_SRC_NOT_SUPPORTED')) {
+        suggestions.push('检查视频文件是否完整')
+        suggestions.push('确保视频使用 H.264 (AVC) 编码')
+        suggestions.push('尝试使用 ffmpeg 转换视频格式')
+        suggestions.push('命令: ffmpeg -i input.mp4 -c:v libx264 -c:a aac output.mp4')
+      }
+      
+      if (this.videoInfo && this.videoInfo.size > 2 * 1024 * 1024 * 1024) {
+        suggestions.push('文件较大，请等待加载完成')
+        suggestions.push('检查网络连接是否稳定')
+      }
+      
+      suggestions.push('刷新页面重试')
+      suggestions.push('检查视频文件是否存在')
+      
+      return suggestions
     }
   },
   
@@ -112,6 +183,10 @@ export default {
             this.videoSrc = videoApi.getVideoStreamUrl(this.filename)
             this.fileSize = video.size_formatted
             this.modifyTime = video.mtime_formatted
+            
+            // 调试信息
+            console.log('视频URL:', this.videoSrc)
+            console.log('视频大小:', video.size)
           } else {
             throw new Error('视频信息未找到')
           }
@@ -133,11 +208,11 @@ export default {
       this.error = null
     },
     
-    handlePlayerError(error) {
+    async handlePlayerError(error) {
       console.error('Video player error:', error)
       
       // 添加延迟检查，避免显示误报的错误
-      setTimeout(() => {
+      setTimeout(async () => {
         // 检查视频是否实际上正在播放或可以播放
         const player = this.$refs.videoPlayerRef?.player
         if (player) {
@@ -145,8 +220,16 @@ export default {
           const readyState = player.readyState()
           const videoElement = player.el().querySelector('video')
           const canPlay = videoElement && videoElement.readyState >= 2
+          const networkState = videoElement ? videoElement.networkState : 0
           
-          // 如果视频可以播放或正在播放，忽略错误（可能是误报）
+          // 网络加载中（networkState === 2）时不认为是错误
+          if (networkState === 2) {
+            console.log('视频正在加载中，忽略暂时错误')
+            this.error = null
+            return
+          }
+          
+          // 如果视频可以播放，忽略错误（可能是误报）
           if (isPlaying || canPlay || readyState >= 2) {
             console.log('错误为误报，视频可以正常播放')
             this.error = null
@@ -154,7 +237,10 @@ export default {
           }
         }
         
-        // 确认是真实错误
+        // 确认是真实错误，检查视频文件
+        await this.checkVideoFile()
+        
+        // 显示错误信息
         if (error && error.code === 4) {
           this.error = '视频格式不支持或文件已损坏'
         } else if (error && error.message) {
@@ -162,7 +248,24 @@ export default {
         } else {
           this.error = '视频播放出错，请检查文件是否存在或格式是否支持'
         }
-      }, 1000)
+      }, 2000) // 增加延迟到 2 秒，给大文件更多加载时间
+    },
+    
+    async checkVideoFile() {
+      this.isCheckingVideo = true
+      try {
+        const response = await fetch(`http://localhost:5000/api/videos/${this.filename}/check`)
+        const result = await response.json()
+        
+        if (result.success) {
+          this.videoCheckResult = result.data
+          console.log('视频检查结果:', result.data)
+        }
+      } catch (err) {
+        console.error('检查视频失败:', err)
+      } finally {
+        this.isCheckingVideo = false
+      }
     },
     
     handleVideoEnded() {

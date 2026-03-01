@@ -66,6 +66,7 @@ export default {
     initPlayer() {
       if (!this.$refs.videoPlayer) return
       
+      // 增加大文件支持的超时时间
       const defaultOptions = {
         controls: true,
         autoplay: false,
@@ -73,6 +74,19 @@ export default {
         fluid: true,
         responsive: true,
         playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
+        html5: {
+          vhs: {
+            // 启用 HTTP 流式传输支持
+            overrideNative: true,
+            enableLowInitialPlaylist: false,
+            smoothQualityChange: true,
+            bandwidth: 4194304 // 4MB/s
+          },
+          nativeVideoTracks: false,
+          nativeAudioTracks: false,
+          nativeTextTracks: false,
+          handlePartialData: true
+        },
         controlBar: {
           children: [
             'playToggle',
@@ -102,42 +116,45 @@ export default {
           this.loadProgress()
         })
         
-        // 监听错误事件 - 添加延迟和状态检查，避免误报
+        // 监听错误事件 - 增加延迟时间，避免大文件误报
         this.player.on('error', (e) => {
           const error = this.player.error()
           
-          // 延迟检查，避免初始化时的误报
+          // 对大文件增加延迟检查时间
           setTimeout(() => {
             // 检查是否真的无法播放
             const playerReady = this.player.readyState()
             const videoElement = this.player.el().querySelector('video')
             const canPlay = videoElement && videoElement.readyState >= 2
+            const networkState = videoElement ? videoElement.networkState : 0
+            
+            // 网络加载中（networkState === 2）时不认为是错误
+            if (networkState === 2) {
+              console.log('视频正在加载中，忽略暂时错误')
+              this.error = null
+              if (this.player) this.player.error(null)
+              return
+            }
             
             // 如果视频可以播放，忽略错误（可能是误报）
             if (canPlay || playerReady >= 2) {
               console.warn('Video.js 误报错误，视频可以正常播放:', error)
-              this.player.error(null) // 清除错误状态
+              if (this.player) this.player.error(null)
               this.error = null
               return
             }
             
             // 确认是真实错误
             if (error && error.code === 4) { // MEDIA_ERR_SRC_NOT_SUPPORTED
-              // 再试一次，可能是临时问题
-              setTimeout(() => {
-                if (this.player && this.player.readyState() < 2) {
-                  this.error = `视频播放错误: ${error.message}`
-                  this.$emit('error', error)
-                } else {
-                  this.error = null
-                  this.player.error(null)
-                }
-              }, 1000)
+              // 检查是否是编码问题
+              console.error('视频格式不支持，检查视频编码:', error)
+              this.error = `视频格式不支持: ${error.message}。请确保视频使用 H.264 编码。`
+              this.$emit('error', error)
             } else if (error) {
               this.error = `视频播放错误: ${error.message}`
               this.$emit('error', error)
             }
-          }, 500)
+          }, 2000) // 对大文件增加延迟到 2 秒
         })
         
         // 监听播放开始，清除错误状态

@@ -1,10 +1,26 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:8990/api'
+// 动态获取 API 地址，支持局域网访问
+const getApiBaseUrl = () => {
+  // 如果指定了后端地址，使用指定的
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL
+  }
+  
+  // 自动检测当前页面的协议和主机
+  const protocol = window.location.protocol
+  const hostname = window.location.hostname
+  const port = '8990'
+  
+  return `http://${hostname}:${port}/api`
+}
+
+const API_BASE_URL = getApiBaseUrl()
+console.log('API Base URL:', API_BASE_URL)
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
   }
