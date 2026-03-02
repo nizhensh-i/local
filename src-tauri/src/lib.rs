@@ -67,10 +67,12 @@ pub fn run() {
         let app_handle = window.app_handle();
         {
           let state = app_handle.state::<BackendState>();
-          if let Ok(mut guard) = state.0.lock() {
-            if let Some(mut child) = guard.take() {
-              let _ = child.kill();
-            }
+          let mut guard = match state.0.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+          };
+          if let Some(mut child) = guard.take() {
+            let _ = child.kill();
           }
         }
       }
