@@ -5,7 +5,7 @@ import subprocess
 from flask import Flask, jsonify, request, Response, send_file
 from flask_cors import CORS
 import mimetypes
-from config import VIDEO_FOLDER, DEFAULT_PAGE_SIZE
+from config import VIDEO_FOLDER, DEFAULT_PAGE_SIZE, PROJECT_ROOT, IS_FROZEN
 from utils import scan_video_files, filter_and_sort_videos, paginate_videos
 
 app = Flask(__name__)
@@ -331,6 +331,8 @@ def health_check():
         'success': True,
         'message': 'Server is running',
         'video_folder': VIDEO_FOLDER,
+        'runtime_root': str(PROJECT_ROOT),
+        'is_frozen': IS_FROZEN,
         'video_count': len(get_videos_cache())
     })
 
