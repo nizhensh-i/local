@@ -6,12 +6,18 @@ const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL
   }
-  
-  // 自动检测当前页面的协议和主机
+
+  // Tauri WebView 场景下 hostname 可能是 tauri.localhost，
+  // 不能直接用于 http 请求，统一回落到本机回环地址。
+  const hostname = window.location.hostname || '127.0.0.1'
   const protocol = window.location.protocol
-  const hostname = window.location.hostname
   const port = '8990'
-  
+
+  const isTauriHost = protocol === 'tauri:' || hostname.endsWith('tauri.localhost')
+  if (isTauriHost || hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `http://127.0.0.1:${port}/api`
+  }
+
   return `http://${hostname}:${port}/api`
 }
 

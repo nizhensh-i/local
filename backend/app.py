@@ -14,11 +14,18 @@ app = Flask(__name__)
 CORS(app, resources={
     r"/api/*": {
         "origins": [
+            "tauri://localhost",
+            "http://localhost:3650",
+            "http://127.0.0.1:3650",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
-            # 允许任何 192.168.x.x 和 10.x.x.x 的局域网地址
+            r"^http://tauri\.localhost(:\d+)?$",
+            r"^http://localhost(:\d+)?$",
+            r"^http://127\.0\.0\.1(:\d+)?$",
+            # 放行常见内网地址: 192.168.x.x / 10.x.x.x / 172.16-31.x.x
             r"^http://192\.168\.\d{1,3}\.\d{1,3}:\d+$",
-            r"^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$"
+            r"^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$",
+            r"^http://172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}:\d+$"
         ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Range", "Accept"],
