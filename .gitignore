@@ -43,3 +43,5 @@ __screenshots__/
 
 *.mp4
 .env
+
+*.exe
