@@ -64,10 +64,13 @@ pub fn run() {
     })
     .on_window_event(|window, event| {
       if let tauri::WindowEvent::CloseRequested { .. } = event {
-        let state = window.app_handle().state::<BackendState>();
-        if let Ok(mut guard) = state.0.lock() {
-          if let Some(mut child) = guard.take() {
-            let _ = child.kill();
+        let app_handle = window.app_handle();
+        {
+          let state = app_handle.state::<BackendState>();
+          if let Ok(mut guard) = state.0.lock() {
+            if let Some(mut child) = guard.take() {
+              let _ = child.kill();
+            }
           }
         }
       }
