@@ -253,10 +253,8 @@ export default {
       }
 
       try {
-        // the dialog/fs plugins are part of the `@tauri-apps/api` namespace on the
-        // JavaScript side; importing from `@tauri-apps/plugin-*` only works in Rust.
-        const { open } = await import('@tauri-apps/api/dialog')
-        const { writeTextFile } = await import('@tauri-apps/api/fs')
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const { writeTextFile, exists } = await import('@tauri-apps/plugin-fs')
         const { BaseDirectory } = await import('@tauri-apps/api/path')
 
         const selected = await open({
@@ -273,7 +271,6 @@ export default {
         
         // Verify the directory exists
         try {
-          const { exists } = await import('@tauri-apps/api/fs')
           const dirExists = await exists(folderPath)
           if (!dirExists) {
             throw new Error('选中的目录不存在')

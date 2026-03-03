@@ -94,7 +94,7 @@ pub fn run() {
       if !backend_started {
         log::error!("All backend start attempts failed: {}", last_error);
         // Only emit error event if we have a window
-        if let Some(win) = app.get_window("main") {
+        if let Some(win) = app.get_webview_window("main") {
           let _ = win.emit("backend-error", last_error);
         }
       }
