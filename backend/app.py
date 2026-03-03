@@ -106,6 +106,10 @@ def send_file_partial(path, filename):
             }
             mime_type = mime_types.get(ext, 'video/mp4')
         
+        # 对文件名进行URL编码，避免中文等非ASCII字符导致的编码问题
+        import urllib.parse
+        safe_filename = urllib.parse.quote(filename, safe='')
+        
         if range_header:
             # 解析 Range 请求，处理各种格式
             try:
@@ -147,7 +151,7 @@ def send_file_partial(path, filename):
                     'Content-Length': str(content_length),
                     'Content-Range': f'bytes {start}-{end}/{file_size}',
                     'Accept-Ranges': 'bytes',
-                    'Content-Disposition': f'inline; filename="{filename}"',
+                    'Content-Disposition': f'inline; filename*=UTF-8\'\'{safe_filename}',
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'Pragma': 'no-cache',
                     'Expires': '0'
@@ -182,7 +186,7 @@ def send_file_partial(path, filename):
                 'Content-Type': mime_type,
                 'Content-Length': str(file_size),
                 'Accept-Ranges': 'bytes',
-                'Content-Disposition': f'inline; filename="{filename}"',
+                'Content-Disposition': f'inline; filename*=UTF-8\'\'{safe_filename}',
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
                 'Expires': '0'

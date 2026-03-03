@@ -1,12 +1,44 @@
 import json
 import os
 import sys
-import time
+import platform
 from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 IS_FROZEN = bool(getattr(sys, 'frozen', False))
 PROJECT_ROOT = Path(sys.executable).resolve().parent if IS_FROZEN else SOURCE_ROOT
+
+def get_default_video_folder():
+    """Get default video folder based on platform"""
+    system = platform.system()
+    if system == 'Windows':
+        # Windows: Use Downloads or Videos folder
+        downloads = Path.home() / 'Downloads'
+        videos = Path.home() / 'Videos'
+        if downloads.exists():
+            return str(downloads)
+        elif videos.exists():
+            return str(videos)
+        else:
+            return str(downloads)
+    elif system == 'Darwin':  # macOS
+        videos = Path.home() / 'Movies'
+        downloads = Path.home() / 'Downloads'
+        if videos.exists():
+            return str(videos)
+        elif downloads.exists():
+            return str(downloads)
+        else:
+            return str(videos)
+    else:  # Linux
+        videos = Path.home() / 'Videos'
+        downloads = Path.home() / 'Downloads'
+        if videos.exists():
+            return str(videos)
+        elif downloads.exists():
+            return str(downloads)
+        else:
+            return str(videos)
 
 def _load_video_folder_from_config():
     """Load video folder configuration from JSON file"""
@@ -37,8 +69,8 @@ def _load_video_folder_from_config():
     return None
 
 
-# 视频文件夹路径（默认固定在代码中）
-VIDEO_FOLDER_DEFAULT = r'E:\Downloads'
+# 视频文件夹路径（默认路径）
+VIDEO_FOLDER_DEFAULT = get_default_video_folder()
 
 def reload_video_folder():
     """Reload video folder configuration"""

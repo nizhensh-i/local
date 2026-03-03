@@ -254,8 +254,8 @@ export default {
 
       try {
         const { open } = await import('@tauri-apps/plugin-dialog')
-        const { writeTextFile, exists } = await import('@tauri-apps/plugin-fs')
-        const { BaseDirectory } = await import('@tauri-apps/api/path')
+        const { writeTextFile, exists, mkdir } = await import('@tauri-apps/plugin-fs')
+        const { BaseDirectory, appDataDir } = await import('@tauri-apps/api/path')
 
         const selected = await open({
           directory: true,
@@ -277,6 +277,14 @@ export default {
           }
         } catch (verifyErr) {
           console.warn('Directory verification skipped:', verifyErr)
+        }
+        
+        // Ensure AppData directory exists
+        const appDataPath = await appDataDir()
+        try {
+          await mkdir(appDataPath, { recursive: true })
+        } catch (mkdirErr) {
+          console.warn('AppData directory might already exist:', mkdirErr)
         }
         
         const payload = JSON.stringify({ video_folder: folderPath }, null, 2)
