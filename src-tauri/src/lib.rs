@@ -33,7 +33,8 @@ fn start_backend(app: &tauri::AppHandle) -> Result<Child, String> {
         .map(|path| path.display().to_string())
         .collect::<Vec<String>>()
         .join(", ");
-      format!("未找到后端可执行文件 app.exe，已检查: {checked}")
+      let message = format!("未找到后端可执行文件 app.exe，已检查: {checked}");
+      message
     })?;
 
   let mut command = Command::new(&exe_path);
@@ -45,7 +46,10 @@ fn start_backend(app: &tauri::AppHandle) -> Result<Child, String> {
 
   let child = command
     .spawn()
-    .map_err(|error| format!("启动后端失败 {}: {}", exe_path.display(), error))?;
+    .map_err(|error| {
+      let message = format!("启动后端失败 {}: {}", exe_path.display(), error);
+      message
+    })?;
 
   log::info!("后端已启动: {}", exe_path.display());
   Ok(child)
@@ -57,10 +61,21 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {
-      let child = start_backend(app.handle()).map_err(|message| {
-        Box::<dyn std::error::Error>::from(std::io::Error::new(std::io::ErrorKind::NotFound, message))
-      })?;
-      app.manage(BackendState(Mutex::new(Some(child))));
+      match start_backend(app.handle()) {
+        Ok(child) => {
+          app.manage(BackendState(Mutex::new(Some(child))));
+        }
+        Err(message) => {
+          log::error!("backend start error: {}", message);
+          // emit a JS event so front‑end can display a nice message instead of
+          // relying on native dialogs. the window will exist at this point.
+          if let Some(win) = app.get_window("main") {
+            let _ = win.emit("backend-error", message.clone());
+          }
+          // continue without a backend; the front-end will show an alert
+          // and API calls will simply fail.
+        }
+      }
 
       if cfg!(debug_assertions) {
         app.handle().plugin(

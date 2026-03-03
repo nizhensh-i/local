@@ -1,5 +1,15 @@
 <template>
   <div id="app">
+    <el-alert
+      v-if="backendError"
+      :title="backendError"
+      type="error"
+      show-icon
+      closable
+      @close="backendError = null"
+      style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:1000;width:calc(100% - 40px);max-width:600px;"
+    />
+
     <router-view v-slot="{ Component, route }">
       <keep-alive>
         <component :is="Component" v-if="route.meta.keepAlive" />
@@ -10,8 +20,38 @@
 </template>
 
 <script>
+import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+
 export default {
-  name: 'App'
+  name: 'App',
+  setup() {
+    const backendError = ref(null)
+
+    onMounted(() => {
+      if (window.__TAURI__ && window.__TAURI__.event) {
+        window.__TAURI__.event.listen('backend-error', event => {
+          const msg = event.payload
+          backendError.value = msg
+          if (msg) {
+            // log and show a global notification
+            // eslint-disable-next-line no-console
+            console.error('backend-error event:', msg)
+            ElMessage.error({
+              message: msg,
+              duration: 0,
+              showClose: true,
+              center: true
+            })
+          }
+        })
+      }
+    })
+
+    return {
+      backendError
+    }
+  }
 }
 </script>
 

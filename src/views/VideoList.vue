@@ -61,7 +61,8 @@
       </div>
       
       <!-- 错误提示 -->
-      <el-alert
+      <!-- 全局错误提示，固定在窗口顶端 -->
+  <el-alert
         v-if="error"
         :title="error"
         type="error"
@@ -69,6 +70,7 @@
         closable
         @close="error = null"
         class="error-alert"
+        style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:1000;width:calc(100% - 40px);max-width:600px;"
       />
     </div>
   </div>
@@ -240,16 +242,17 @@ export default {
 
     async handleSelectFolder() {
       if (!this.isTauri) {
+        // use a toast so the message appears at the top of the window
         this.$message.warning('当前环境不支持选择本地文件夹')
         return
       }
 
       try {
-        const [{ open }, { writeTextFile }, { BaseDirectory }] = await Promise.all([
-          import('@tauri-apps/plugin-dialog'),
-          import('@tauri-apps/plugin-fs'),
-          import('@tauri-apps/api/path')
-        ])
+        // the dialog/fs plugins are part of the `@tauri-apps/api` namespace on the
+        // JavaScript side; importing from `@tauri-apps/plugin-*` only works in Rust.
+        const { open } = await import('@tauri-apps/api/dialog')
+        const { writeTextFile } = await import('@tauri-apps/api/fs')
+        const { BaseDirectory } = await import('@tauri-apps/api/path')
 
         const selected = await open({
           directory: true,
@@ -271,6 +274,10 @@ export default {
       } catch (err) {
         console.error('handleSelectFolder failed:', err)
         const message = this.getErrorMessage(err)
+        // keep the detailed message in `error` so the alert can render it and also
+        // show a global toast; the toast appears at the top and will auto‑dismiss.
+        this.error = message
+        this.$message.error('选择文件夹失败: ' + message)
         this.toastOnce('selectFolder', 'error', '选择文件夹失败: ' + message)
       }
     }
