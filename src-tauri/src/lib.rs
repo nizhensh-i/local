@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 struct BackendState(Mutex<Option<Child>>);
 
