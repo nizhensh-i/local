@@ -442,64 +442,73 @@ def get_network_info():
 def refresh_videos():
     """刷新视频列表缓存"""
     global cached_videos, VIDEO_FOLDER
-    
-    print("=" * 60)
-    print("Refreshing video cache...")
-    old_folder = VIDEO_FOLDER
-    
-    # Try to read config file directly
-    config_path = config.get_config_path()
-    print(f"Config path: {config_path}")
-    
-    if config_path and os.path.exists(config_path):
-        try:
-            with open(config_path, 'r', encoding='utf-8') as file:
-                data = json.load(file)
-                new_folder = data.get('video_folder')
-                print(f"Config video_folder: {new_folder}")
-                
-                if new_folder and os.path.isdir(new_folder) and new_folder != old_folder:
-                    VIDEO_FOLDER = new_folder
-                    print(f"✓ Updated VIDEO_FOLDER: {old_folder} -> {VIDEO_FOLDER}")
-                elif new_folder == old_folder:
-                    print(f"✓ VIDEO_FOLDER unchanged: {VIDEO_FOLDER}")
-                elif new_folder and not os.path.isdir(new_folder):
-                    print(f"✗ Invalid folder path (not exists or not a directory): {new_folder}")
-                    print(f"✓ Keep current VIDEO_FOLDER: {VIDEO_FOLDER}")
-                else:
-                    print(f"✗ Invalid config, keeping: {VIDEO_FOLDER}")
-        except Exception as e:
-            print(f"✗ Error reading config: {e}")
-            import traceback
-            traceback.print_exc()
-    else:
-        print(f"✗ Config file not found: {config_path}")
-    
-    # Keep old folder if current folder becomes invalid for any reason
-    if not os.path.isdir(VIDEO_FOLDER):
-        print(f"⚠ Current VIDEO_FOLDER is invalid: {VIDEO_FOLDER}")
-        if os.path.isdir(old_folder):
-            VIDEO_FOLDER = old_folder
-            print(f"✓ Reverted VIDEO_FOLDER to previous valid folder: {VIDEO_FOLDER}")
+
+    try:
+        print("=" * 60)
+        print("Refreshing video cache...")
+        old_folder = VIDEO_FOLDER
+
+        # Try to read config file directly
+        config_path = config.get_config_path()
+        print(f"Config path: {config_path}")
+
+        if config_path and os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as file:
+                    data = json.load(file)
+                    new_folder = data.get('video_folder')
+                    print(f"Config video_folder: {new_folder}")
+
+                    if new_folder and os.path.isdir(new_folder) and new_folder != old_folder:
+                        VIDEO_FOLDER = new_folder
+                        print(f"[OK] Updated VIDEO_FOLDER: {old_folder} -> {VIDEO_FOLDER}")
+                    elif new_folder == old_folder:
+                        print(f"[OK] VIDEO_FOLDER unchanged: {VIDEO_FOLDER}")
+                    elif new_folder and not os.path.isdir(new_folder):
+                        print(f"[WARN] Invalid folder path (not exists or not a directory): {new_folder}")
+                        print(f"[OK] Keep current VIDEO_FOLDER: {VIDEO_FOLDER}")
+                    else:
+                        print(f"[WARN] Invalid config, keeping: {VIDEO_FOLDER}")
+            except Exception as e:
+                print(f"[ERR] Error reading config: {e}")
+                import traceback
+                traceback.print_exc()
         else:
-            # Fallback to config default loader without changing API behavior
-            VIDEO_FOLDER = reload_video_folder()
-            print(f"✓ Reloaded VIDEO_FOLDER from config/default: {VIDEO_FOLDER}")
-    
-    # Clear cache and rescan
-    print(f"Scanning videos from: {VIDEO_FOLDER}")
-    cached_videos = None
-    video_count = len(get_videos_cache())
-    print(f"✓ Found {video_count} videos")
-    print("=" * 60)
-    
-    return jsonify({
-        'success': True,
-        'message': f'Video cache refreshed, found {video_count} videos',
-        'video_folder': VIDEO_FOLDER,
-        'old_folder': old_folder,
-        'video_count': video_count
-    })
+            print(f"[WARN] Config file not found: {config_path}")
+
+        # Keep old folder if current folder becomes invalid for any reason
+        if not os.path.isdir(VIDEO_FOLDER):
+            print(f"[WARN] Current VIDEO_FOLDER is invalid: {VIDEO_FOLDER}")
+            if os.path.isdir(old_folder):
+                VIDEO_FOLDER = old_folder
+                print(f"[OK] Reverted VIDEO_FOLDER to previous valid folder: {VIDEO_FOLDER}")
+            else:
+                # Fallback to config default loader without changing API behavior
+                VIDEO_FOLDER = reload_video_folder()
+                print(f"[OK] Reloaded VIDEO_FOLDER from config/default: {VIDEO_FOLDER}")
+
+        # Clear cache and rescan
+        print(f"Scanning videos from: {VIDEO_FOLDER}")
+        cached_videos = None
+        video_count = len(get_videos_cache())
+        print(f"[OK] Found {video_count} videos")
+        print("=" * 60)
+
+        return jsonify({
+            'success': True,
+            'message': f'Video cache refreshed, found {video_count} videos',
+            'video_folder': VIDEO_FOLDER,
+            'old_folder': old_folder,
+            'video_count': video_count
+        })
+    except Exception as e:
+        print(f"[ERR] Failed to refresh video cache: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 @app.route('/api/health', methods=['GET'])

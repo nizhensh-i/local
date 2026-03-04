@@ -76,7 +76,8 @@
     <el-dialog
       v-model="addressDialogVisible"
       title="局域网连接地址"
-      width="560px"
+      :width="addressDialogWidth"
+      class="address-dialog"
     >
       <el-skeleton v-if="addressLoading" :rows="4" animated />
       <div v-else>
@@ -95,6 +96,7 @@
             type="success"
             :closable="false"
             show-icon
+            class="url-alert"
           />
         </el-space>
         <p class="address-note">
@@ -153,6 +155,9 @@ export default {
     },
     paginationLayout() {
       return this.isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'
+    },
+    addressDialogWidth() {
+      return this.isMobile ? '92vw' : '560px'
     }
   },
   
@@ -167,6 +172,12 @@ export default {
   
   methods: {
     getErrorMessage(err) {
+      if (err && typeof err === 'object') {
+        const responseError = err.response?.data?.error
+        if (typeof responseError === 'string' && responseError.trim()) {
+          return responseError
+        }
+      }
       if (err && typeof err === 'object' && typeof err.message === 'string') {
         return err.message
       }
@@ -424,6 +435,17 @@ export default {
   margin-top: 14px;
   color: #909399;
   font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+:deep(.address-dialog) {
+  max-width: calc(100vw - 24px);
+}
+
+:deep(.url-alert .el-alert__title) {
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.4;
 }
 
 /* 响应式布局 */

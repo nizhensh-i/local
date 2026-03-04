@@ -154,19 +154,25 @@ fn start_backend(app: &tauri::AppHandle) -> Result<Child, String> {
   }
 
   let mut command = Command::new(&exe_path);
-  let logs_dir = ensure_logs_dir(app)?;
-  let backend_log_path = logs_dir.join(LOG_FILE_BACKEND);
-  rotate_log_file(&backend_log_path)?;
-  let stdout_file = OpenOptions::new()
-    .create(true)
-    .append(true)
-    .open(&backend_log_path)
-    .map_err(|error| format!("打开后端日志失败 {}: {}", backend_log_path.display(), error))?;
-  let stderr_file = stdout_file
-    .try_clone()
-    .map_err(|error| format!("复制后端日志句柄失败: {}", error))?;
-  command.stdout(Stdio::from(stdout_file));
-  command.stderr(Stdio::from(stderr_file));
+  if cfg!(debug_assertions) {
+    // In development, keep backend logs visible in the terminal.
+    command.stdout(Stdio::inherit());
+    command.stderr(Stdio::inherit());
+  } else {
+    let logs_dir = ensure_logs_dir(app)?;
+    let backend_log_path = logs_dir.join(LOG_FILE_BACKEND);
+    rotate_log_file(&backend_log_path)?;
+    let stdout_file = OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(&backend_log_path)
+      .map_err(|error| format!("打开后端日志失败 {}: {}", backend_log_path.display(), error))?;
+    let stderr_file = stdout_file
+      .try_clone()
+      .map_err(|error| format!("复制后端日志句柄失败: {}", error))?;
+    command.stdout(Stdio::from(stdout_file));
+    command.stderr(Stdio::from(stderr_file));
+  }
 
   if let Ok(app_data_dir) = app.path().app_data_dir() {
     let config_path = app_data_dir.join("video_folder.json");
