@@ -1,3 +1,7 @@
+param(
+  [string]$IconPath = 'backend\backend.ico'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -14,6 +18,11 @@ $frontendResourcePath = Join-Path $distPath 'web'
 $workPath = Join-Path $repoRoot 'backend\build'
 $specPath = Join-Path $repoRoot 'backend'
 $targetExe = Join-Path $distPath 'local_v_backend.exe'
+$iconFullPath = if ([System.IO.Path]::IsPathRooted($IconPath)) {
+  $IconPath
+} else {
+  Join-Path $repoRoot $IconPath
+}
 
 # PyInstaller overwrites by deleting the old EXE. On Windows this can fail if the backend is still running
 # or antivirus is scanning the file, so retry a few times to reduce flakiness.
@@ -42,11 +51,21 @@ if (Test-Path $frontendDist) {
   Write-Warning "Frontend dist not found at $frontendDist. Run 'npm run build' before backend build for LAN page sharing."
 }
 
-& $python -m PyInstaller `
-  -F $appPy `
-  --name local_v_backend `
-  --distpath $distPath `
-  --workpath $workPath `
-  --specpath $specPath `
-  --noconfirm
-  --icon (Join-Path $repoRoot 'backend\backend.ico')
+$pyInstallerArgs = @(
+  '-m', 'PyInstaller',
+  '-F', $appPy,
+  '--name', 'local_v_backend',
+  '--distpath', $distPath,
+  '--workpath', $workPath,
+  '--specpath', $specPath,
+  '--noconfirm'
+)
+
+if (Test-Path $iconFullPath) {
+  $pyInstallerArgs += @('--icon', $iconFullPath)
+  Write-Host "Using backend icon: $iconFullPath"
+} else {
+  Write-Warning "Backend icon not found at $iconFullPath. Continue without --icon."
+}
+
+& $python @pyInstallerArgs
