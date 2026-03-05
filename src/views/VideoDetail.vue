@@ -1,102 +1,113 @@
 <template>
   <div class="video-detail-page">
     <div class="detail-container">
-      <!-- 返回按钮 -->
-      <div class="back-button-container">
-        <el-button @click="goBack" :icon="ArrowLeft" size="large" round>
+      <div class="detail-topbar">
+        <el-button @click="goBack" :icon="ArrowLeft" class="back-button">
           返回列表
         </el-button>
-      </div>
-      
-      <!-- 视频播放器 -->
-      <div class="player-section">
-        <VideoPlayer
-          :src="videoSrc"
-          :poster="videoPoster"
-          type="video/mp4"
-          @ready="handlePlayerReady"
-          @error="handlePlayerError"
-          @ended="handleVideoEnded"
-          ref="videoPlayerRef"
-        />
-      </div>
-      
-      <!-- 视频信息 -->
-      <el-card class="video-info-card" shadow="hover">
-        <template #header>
-          <div class="card-header">
-            <h2 class="video-title">{{ filename }}</h2>
-          </div>
-        </template>
-        
-        <div class="video-meta">
-          <div class="meta-item">
-            <el-icon><Document /></el-icon>
-            <span class="meta-label">文件大小：</span>
-            <span class="meta-value">{{ fileSize }}</span>
-          </div>
-          
-          <div class="meta-item">
-            <el-icon><Clock /></el-icon>
-            <span class="meta-label">修改时间：</span>
-            <span class="meta-value">{{ modifyTime }}</span>
-          </div>
+        <div class="topbar-title-group">
+          <h1 class="page-title" :title="filename">{{ filename }}</h1>
+          <p class="page-subtitle">视频详情与播放</p>
         </div>
-      </el-card>
-      
-      <!-- 错误提示 -->
-      <div v-if="error" class="error-container">
-        <el-alert
-          :title="error"
-          type="error"
-          show-icon
-          closable
-          @close="error = null"
-          class="error-alert"
-        />
-        
-        <!-- 视频检查信息 -->
-        <el-card v-if="videoCheckResult" class="check-result-card" shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <h3>视频文件检查</h3>
+      </div>
+
+      <div class="detail-layout">
+        <main class="detail-main">
+          <div class="player-section">
+            <VideoPlayer
+              :src="videoSrc"
+              :poster="videoPoster"
+              type="video/mp4"
+              @ready="handlePlayerReady"
+              @error="handlePlayerError"
+              @ended="handleVideoEnded"
+              ref="videoPlayerRef"
+            />
+          </div>
+
+          <div v-if="error" class="error-container">
+            <el-alert
+              :title="errorHeadline"
+              :description="error"
+              type="error"
+              show-icon
+              closable
+              @close="error = null"
+              class="error-alert"
+            />
+
+            <el-card v-if="videoCheckResult" class="check-result-card" shadow="never">
+              <template #header>
+                <div class="card-header">
+                  <h3>视频文件检查</h3>
+                </div>
+              </template>
+
+              <div v-if="videoCheckResult.issues && videoCheckResult.issues.length > 0" class="issues-list">
+                <h4>发现的问题：</h4>
+                <ul>
+                  <li v-for="(issue, index) in videoCheckResult.issues" :key="index">
+                    {{ issue }}
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="videoCheckResult.encoding_tips" class="encoding-tips">
+                <h4>解决建议：</h4>
+                <ol>
+                  <li v-for="(tip, index) in videoCheckResult.encoding_tips" :key="index">
+                    <code v-if="tip.includes('ffmpeg')">{{ tip }}</code>
+                    <span v-else>{{ tip }}</span>
+                  </li>
+                </ol>
+              </div>
+
+              <div v-if="videoCheckResult.is_large_file" class="large-file-notice">
+                <el-icon><Warning /></el-icon>
+                <span>文件较大 ({{ videoCheckResult.size_formatted }})，可能需要更长的加载时间</span>
+              </div>
+            </el-card>
+
+            <div v-if="errorSuggestions.length > 0" class="suggestions">
+              <h4>排查建议：</h4>
+              <ul>
+                <li v-for="(suggestion, index) in errorSuggestions" :key="index">
+                  {{ suggestion }}
+                </li>
+              </ul>
             </div>
-          </template>
-          
-          <div v-if="videoCheckResult.issues && videoCheckResult.issues.length > 0" class="issues-list">
-            <h4>发现的问题：</h4>
-            <ul>
-              <li v-for="(issue, index) in videoCheckResult.issues" :key="index">
-                {{ issue }}
-              </li>
-            </ul>
           </div>
-          
-          <div v-if="videoCheckResult.encoding_tips" class="encoding-tips">
-            <h4>解决建议：</h4>
-            <ol>
-              <li v-for="(tip, index) in videoCheckResult.encoding_tips" :key="index">
-                <code v-if="tip.includes('ffmpeg')">{{ tip }}</code>
-                <span v-else>{{ tip }}</span>
-              </li>
-            </ol>
-          </div>
-          
-          <div v-if="videoCheckResult.is_large_file" class="large-file-notice">
-            <el-icon><Warning /></el-icon>
-            <span>文件较大 ({{ videoCheckResult.size_formatted }})，可能需要更长的加载时间</span>
-          </div>
-        </el-card>
-        
-        <!-- 其他建议 -->
-        <div v-if="errorSuggestions.length > 0" class="suggestions">
-          <h4>其他建议：</h4>
-          <ul>
-            <li v-for="(suggestion, index) in errorSuggestions" :key="index">
-              {{ suggestion }}
-            </li>
-          </ul>
-        </div>
+        </main>
+
+        <aside class="detail-side">
+          <el-card class="video-info-card" shadow="never">
+            <template #header>
+              <div class="card-header">
+                <h2 class="video-title">视频信息</h2>
+              </div>
+            </template>
+
+            <div class="video-meta">
+              <div class="meta-item">
+                <el-icon><Document /></el-icon>
+                <span class="meta-label">文件名</span>
+                <span class="meta-value" :title="filename">{{ filename }}</span>
+              </div>
+
+              <div class="meta-item">
+                <el-icon><Document /></el-icon>
+                <span class="meta-label">文件大小</span>
+                <span class="meta-value">{{ fileSize || '-' }}</span>
+              </div>
+
+              <div class="meta-item">
+                <el-icon><Clock /></el-icon>
+                <span class="meta-label">修改时间</span>
+                <span class="meta-value">{{ modifyTime || '-' }}</span>
+              </div>
+            </div>
+          </el-card>
+        </aside>
       </div>
     </div>
   </div>
@@ -136,6 +147,12 @@ export default {
   },
   
   computed: {
+    errorHeadline() {
+      if (!this.error) return ''
+      if (this.error.includes('格式不支持')) return '播放失败：视频格式不受支持'
+      if (this.error.includes('损坏')) return '播放失败：视频文件可能已损坏'
+      return '播放失败，请按以下建议排查'
+    },
     errorSuggestions() {
       if (!this.error) return []
       
@@ -186,7 +203,7 @@ export default {
         }
       } catch (err) {
         this.error = err.message
-        this.$message.error('加载视频失败: ' + err.message)
+        this.$message.error('视频信息加载失败：' + err.message)
       }
     },
     
@@ -275,8 +292,8 @@ export default {
 <style scoped>
 .video-detail-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  padding: 20px 0 40px 0;
+  background: var(--bg-page);
+  padding: 12px 0 16px;
 }
 
 .detail-container {
@@ -285,21 +302,64 @@ export default {
   padding: 0 20px;
 }
 
-.back-button-container {
-  margin-bottom: 20px;
+.detail-topbar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.back-button {
+  height: 34px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.topbar-title-group {
+  min-width: 0;
+}
+
+.page-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-subtitle {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
 }
 
 .player-section {
-  margin-bottom: 30px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
 }
 
 .video-info-card {
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border-default);
+  position: sticky;
+  top: 14px;
 }
 
 .card-header {
@@ -309,69 +369,181 @@ export default {
 
 .video-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 16px;
   font-weight: 600;
-  color: #303133;
-  line-height: 1.4;
+  color: var(--text-primary);
+  line-height: 1.3;
 }
 
 .video-meta {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 10px 0;
+  gap: 12px;
+  padding: 2px 0;
 }
 
 .meta-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 16px;
-  color: #606266;
+  gap: 8px;
+  font-size: 14px;
+  color: #4b5563;
+  min-width: 0;
 }
 
 .meta-item .el-icon {
-  font-size: 18px;
-  color: #909399;
+  font-size: 16px;
+  color: #9ca3af;
 }
 
 .meta-label {
   font-weight: 500;
-  min-width: 80px;
+  width: 64px;
+  flex-shrink: 0;
 }
 
 .meta-value {
-  color: #303133;
+  color: var(--text-primary);
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-container {
+  margin-top: 10px;
 }
 
 .error-alert {
-  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+.check-result-card {
+  border: 1px solid #fecaca;
+  background: #fff7f7;
+  border-radius: var(--radius-lg);
+}
+
+.check-result-card h3,
+.check-result-card h4 {
+  margin: 0;
+  color: #7f1d1d;
+}
+
+.check-result-card h4 {
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.issues-list ul,
+.encoding-tips ol,
+.suggestions ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.issues-list li,
+.encoding-tips li,
+.suggestions li {
+  margin-bottom: 6px;
+  line-height: 1.45;
+  color: #374151;
+}
+
+.encoding-tips code {
+  display: inline-block;
+  white-space: normal;
+  word-break: break-word;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.large-file-notice {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.suggestions {
+  margin-top: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+}
+
+.suggestions h4 {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+@media (max-width: 1100px) {
+  .detail-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .video-info-card {
+    position: static;
+  }
 }
 
 @media (max-width: 768px) {
   .video-detail-page {
-    padding: 15px 0 30px 0;
+    padding: 10px 0 14px;
   }
-  
+
   .detail-container {
-    padding: 0 15px;
+    padding: 0 12px;
   }
-  
+
+  .detail-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .back-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .page-title {
+    font-size: 16px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .detail-layout {
+    gap: 10px;
+  }
+
   .video-title {
-    font-size: 18px;
+    font-size: 15px;
   }
-  
+
   .meta-item {
     font-size: 14px;
+    align-items: flex-start;
   }
-  
+
   .meta-item .el-icon {
-    font-size: 16px;
+    margin-top: 2px;
   }
-  
+
   .meta-label {
-    min-width: 70px;
+    width: 56px;
+  }
+
+  .meta-value {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 </style>

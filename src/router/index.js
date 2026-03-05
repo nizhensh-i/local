@@ -35,24 +35,22 @@ const router = createRouter({
   ]
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to) => {
   document.title = to.meta.title || '本地视频播放器'
 
   if (to.meta.public) {
-    next()
-    return
+    return true
   }
 
   const isAuthed = sessionStorage.getItem(AUTH_KEY) === '1'
   if (!isAuthed) {
-    next({
+    return {
       name: 'login',
       query: { redirect: to.fullPath }
-    })
-    return
+    }
   }
 
-  next()
+  return true
 })
 
 export default router

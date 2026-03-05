@@ -13,8 +13,12 @@
     <div class="content-container">
       <!-- 加载状态 -->
       <div v-if="loading" class="loading-container">
-        <el-skeleton :rows="6" animated />
-        <el-skeleton :rows="6" animated />
+        <div class="loading-surface">
+          <el-skeleton :rows="6" animated />
+        </div>
+        <div class="loading-surface">
+          <el-skeleton :rows="6" animated />
+        </div>
       </div>
       
       <!-- 空状态 -->
@@ -53,7 +57,7 @@
             :total="pagination.total"
             :page-sizes="[12, 24, 48]"
             :layout="paginationLayout"
-            :small="isMobile"
+            size="small"
             background
             @size-change="handlePageSizeChange"
             @current-change="handlePageChange"
@@ -64,7 +68,7 @@
       <!-- 本地错误提示（非全局） -->
       <el-alert
         v-if="error"
-        :title="error"
+        :title="listErrorTitle"
         type="error"
         show-icon
         closable
@@ -81,7 +85,7 @@
     >
       <el-skeleton v-if="addressLoading" :rows="4" animated />
       <div v-else>
-        <p class="address-tip">其他设备可尝试访问以下前端地址：</p>
+        <p class="address-tip">可在同一局域网设备打开以下地址：</p>
         <el-empty v-if="frontendUrls.length === 0" description="未检测到可用局域网 IP" />
         <el-space
           v-else
@@ -100,7 +104,7 @@
           />
         </el-space>
         <p class="address-note">
-          如果其它设备无法打开，请确认本机防火墙和端口已放行。
+          若无法访问，请检查本机防火墙与端口放行设置。
         </p>
       </div>
     </el-dialog>
@@ -149,9 +153,12 @@ export default {
   computed: {
     emptyText() {
       if (this.searchKeyword) {
-        return `未找到包含 "${this.searchKeyword}" 的视频`
+        return `未找到与“${this.searchKeyword}”相关的视频，请尝试更短关键词。`
       }
-      return '暂无视频文件'
+      return '当前目录暂无可播放视频'
+    },
+    listErrorTitle() {
+      return `列表加载失败：${this.error}`
     },
     paginationLayout() {
       return this.isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'
@@ -235,7 +242,7 @@ export default {
       } catch (err) {
         const message = this.getErrorMessage(err)
         this.error = message
-        this.toastOnce('fetchVideos', 'error', '获取视频列表失败: ' + message)
+        this.toastOnce('fetchVideos', 'error', '列表加载失败，请稍后重试：' + message)
       } finally {
         this.loading = false
       }
@@ -274,10 +281,10 @@ export default {
       try {
         await videoApi.refreshCache()
         this.fetchVideos()
-        this.$message.success('视频列表已刷新')
+        this.$message.success('列表已更新')
       } catch (err) {
         const message = this.getErrorMessage(err)
-        this.toastOnce('refresh', 'error', '刷新失败: ' + message)
+        this.toastOnce('refresh', 'error', '列表刷新失败：' + message)
       } finally {
         this.refreshing = false
       }
@@ -286,7 +293,7 @@ export default {
     async handleSelectFolder() {
       if (!this.isTauri) {
         // use a toast so the message appears at the top of the window
-        this.$message.warning('当前环境不支持选择本地文件夹')
+        this.$message.warning('当前运行环境不支持选择本地文件夹')
         return
       }
 
@@ -335,9 +342,9 @@ export default {
         if (refreshResponse?.data?.success) {
           await this.fetchVideos()
           if (this.videos.length === 0) {
-            this.$message.info('未在选中目录中找到视频文件')
+            this.$message.info('目录更新成功，但未找到可播放视频')
           } else {
-            this.$message.success(`视频目录已更新，找到 ${this.videos.length} 个视频`)
+            this.$message.success(`目录更新成功，已加载 ${this.videos.length} 个视频`)
           }
         } else {
           throw new Error(refreshResponse?.data?.error || '刷新视频目录失败')
@@ -349,8 +356,8 @@ export default {
         // keep the detailed message in `error` so the alert can render it and also
         // show a global toast; the toast appears at the top and will auto‑dismiss.
         this.error = message
-        this.$message.error('选择文件夹失败: ' + message)
-        this.toastOnce('selectFolder', 'error', '选择文件夹失败: ' + message)
+        this.$message.error('目录更新失败：' + message)
+        this.toastOnce('selectFolder', 'error', '目录更新失败：' + message)
       }
     },
 
@@ -368,7 +375,7 @@ export default {
       } catch (err) {
         const message = this.getErrorMessage(err)
         this.frontendUrls = []
-        this.toastOnce('networkInfo', 'error', '获取连接地址失败: ' + message)
+        this.toastOnce('networkInfo', 'error', '获取连接地址失败：' + message)
       } finally {
         this.addressLoading = false
       }
@@ -380,34 +387,44 @@ export default {
 <style scoped>
 .video-list-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: var(--bg-page);
+  overflow-x: hidden;
 }
 
 .content-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px 20px 40px 20px;
+  padding: 14px 20px 24px;
 }
 
 .loading-container {
-  padding: 40px 20px;
+  padding: 20px 4px;
+  display: grid;
+  gap: 12px;
+}
+
+.loading-surface {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 14px;
 }
 
 .empty-container {
-  padding: 60px 20px;
+  padding: 48px 20px;
   display: flex;
   justify-content: center;
 }
 
 .video-grid {
-  margin-top: 20px;
+  margin-top: 8px;
 }
 
 .grid-container {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  margin-bottom: 40px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+  margin-bottom: 26px;
 }
 
 .video-grid-item {
@@ -417,23 +434,23 @@ export default {
 .pagination-container {
   display: flex;
   justify-content: center;
-  margin-top: 40px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  margin-top: 14px;
+  overflow-x: visible;
 }
 
 .error-alert {
   margin-bottom: 20px;
+  border-radius: var(--radius-md);
 }
 
 .address-tip {
   margin-bottom: 12px;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .address-note {
   margin-top: 14px;
-  color: #909399;
+  color: var(--text-secondary);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -448,50 +465,60 @@ export default {
   line-height: 1.4;
 }
 
-/* 响应式布局 */
-@media (max-width: 1200px) {
+@media (max-width: 1439px) {
   .grid-container {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   }
 }
 
-@media (max-width: 992px) {
+@media (max-width: 1199px) {
   .grid-container {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 12px;
   }
 }
 
 @media (max-width: 768px) {
   .content-container {
-    padding: 0 15px 30px 15px;
+    padding: 0 12px 16px;
   }
-  
+
+  .video-grid {
+    margin-top: 6px;
+  }
+
   .grid-container {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
+    margin-bottom: 14px;
   }
-  
+
   .pagination-container {
-    margin-top: 30px;
     justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
 }
 
-/* 动画效果 */
+@media (max-width: 359px) {
+  .grid-container {
+    grid-template-columns: 1fr;
+  }
+}
+
 .video-list-enter-active,
 .video-list-leave-active {
-  transition: all 0.5s ease;
+  transition: all var(--motion-base) ease;
 }
 
 .video-list-enter-from {
   opacity: 0;
-  transform: translateY(30px);
+  transform: translateY(16px);
 }
 
 .video-list-leave-to {
   opacity: 0;
-  transform: scale(0.9);
+  transform: scale(0.97);
 }
 
 .video-list-leave-active {

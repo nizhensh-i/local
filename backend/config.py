@@ -115,7 +115,8 @@ def get_config_path():
 
 
 # 视频文件夹路径（默认路径）
-VIDEO_FOLDER_DEFAULT = get_default_video_folder()
+# VIDEO_FOLDER_DEFAULT = get_default_video_folder()
+VIDEO_FOLDER_DEFAULT = '/Users/v/Downloads'
 
 def reload_video_folder():
     """Reload video folder configuration"""

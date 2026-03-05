@@ -58,6 +58,24 @@ export default {
 </script>
 
 <style>
+:root {
+  --bg-page: #f3f4f6;
+  --bg-surface: #ffffff;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --border-default: #e5e7eb;
+  --border-muted: #d1d5db;
+  --shadow-soft: 0 8px 20px rgba(15, 23, 42, 0.06);
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 20px;
+  --motion-fast: 0.2s;
+  --motion-base: 0.24s;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -68,6 +86,8 @@ html,
 body {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-page);
 }
 
 #app {

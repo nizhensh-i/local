@@ -1,6 +1,6 @@
 <template>
   <div class="video-player-container">
-    <div class="video-wrapper">
+    <div class="video-wrapper" :class="{ 'player-ready': isPlayerReady }">
       <VueVideoPlayer
         ref="vuePlayerRef"
         class="vjs-big-play-centered"
@@ -63,7 +63,8 @@ export default {
   data() {
     return {
       player: null,
-      error: null
+      error: null,
+      isPlayerReady: false
     }
   },
 
@@ -101,9 +102,11 @@ export default {
   methods: {
     handleMounted(payload) {
       this.player = payload?.player || null
+      this.isPlayerReady = false
     },
 
     handleReady() {
+      this.isPlayerReady = true
       this.$emit('ready', this.player)
       this.loadProgress()
     },
@@ -232,6 +235,7 @@ export default {
 
   watch: {
     src() {
+      this.isPlayerReady = false
       this.clearPlayerError()
     }
   }
@@ -244,6 +248,7 @@ export default {
 }
 
 .video-wrapper {
+  position: relative;
   width: 100%;
   border-radius: 8px;
   overflow: hidden;
@@ -255,6 +260,23 @@ export default {
   height: auto;
   aspect-ratio: 16/9;
   font-size: 14px;
+}
+
+.video-wrapper :deep(.vjs-big-play-button) {
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%);
+  margin: 0 !important;
+  transition: none !important;
+}
+
+.video-wrapper:not(.player-ready) :deep(.vjs-big-play-button) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.video-wrapper.player-ready :deep(.vjs-big-play-button) {
+  opacity: 1;
 }
 
 .video-wrapper :deep(.vjs-control-bar) {
