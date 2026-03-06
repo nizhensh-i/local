@@ -1,4 +1,5 @@
 use chrono::Local;
+use std::collections::HashSet;
 use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file};
 use std::io::Write;
 use std::net::TcpListener;
@@ -166,6 +167,139 @@ fn kill_process_by_pid(pid: u32) -> Result<(), String> {
   }
 }
 
+fn wait_for_child_exit(child: &mut Child, timeout_ms: u64) -> Result<bool, String> {
+  let attempts = (timeout_ms / 100).max(1);
+  for _ in 0..attempts {
+    match child.try_wait() {
+      Ok(Some(_)) => return Ok(true),
+      Ok(None) => sleep(Duration::from_millis(100)),
+      Err(error) => return Err(format!("检查后端进程退出状态失败: {}", error)),
+    }
+  }
+
+  Ok(false)
+}
+
+fn backend_pids_on_port(port: u16) -> Vec<u32> {
+  #[cfg(target_os = "windows")]
+  {
+    let output = Command::new("netstat")
+      .args(["-ano", "-p", "tcp"])
+      .output();
+
+    let Ok(output) = output else {
+      return Vec::new();
+    };
+
+    let needle = format!(":{}", port);
+    let mut pids = HashSet::new();
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+      let columns: Vec<&str> = line.split_whitespace().collect();
+      if columns.len() < 5 {
+        continue;
+      }
+
+      if !columns[0].to_ascii_uppercase().starts_with("TCP") {
+        continue;
+      }
+
+      // Match local-address column instead of localized LISTENING state text.
+      if !columns[1].contains(&needle) {
+        continue;
+      }
+
+      if let Ok(pid) = columns[4].parse::<u32>() {
+        if pid > 0 {
+          pids.insert(pid);
+        }
+      }
+    }
+
+    return pids.into_iter().collect();
+  }
+
+  #[cfg(not(target_os = "windows"))]
+  {
+    let output = Command::new("lsof")
+      .args([
+        "-nP",
+        &format!("-iTCP:{}", port),
+        "-sTCP:LISTEN",
+        "-t",
+      ])
+      .output();
+
+    let Ok(output) = output else {
+      return Vec::new();
+    };
+
+    let mut pids = HashSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+      if let Ok(pid) = line.trim().parse::<u32>() {
+        if pid > 0 {
+          pids.insert(pid);
+        }
+      }
+    }
+
+    pids.into_iter().collect()
+  }
+}
+
+fn cleanup_backend_port_occupants(app: &tauri::AppHandle, reason: &str) {
+  let current_pid = std::process::id();
+  let pids = backend_pids_on_port(BACKEND_PORT);
+
+  if pids.is_empty() {
+    return;
+  }
+
+  let mut killed = 0_u32;
+  for pid in pids {
+    if pid == current_pid {
+      continue;
+    }
+
+    if !is_expected_backend_process(pid) {
+      write_app_log(
+        app,
+        "WARN",
+        &format!(
+          "检测到端口 {} 被未知进程占用，跳过清理 PID={}（{}）",
+          BACKEND_PORT, pid, reason
+        ),
+      );
+      continue;
+    }
+
+    match kill_process_by_pid(pid) {
+      Ok(()) => {
+        killed += 1;
+        write_app_log(
+          app,
+          "INFO",
+          &format!("已按端口清理后端进程 PID={}（{}）", pid, reason),
+        );
+      }
+      Err(error) => write_app_log(
+        app,
+        "WARN",
+        &format!("按端口清理后端进程失败 PID={}（{}）: {}", pid, reason, error),
+      ),
+    }
+  }
+
+  if killed > 0 {
+    for _ in 0..10 {
+      if is_backend_port_available() {
+        break;
+      }
+      sleep(Duration::from_millis(200));
+    }
+  }
+}
+
 fn is_expected_backend_process(pid: u32) -> bool {
   #[cfg(target_os = "windows")]
   {
@@ -250,6 +384,12 @@ fn ensure_backend_port_ready(app: &tauri::AppHandle) -> Result<(), String> {
   }
 
   cleanup_stale_backend(app);
+
+  if is_backend_port_available() {
+    return Ok(());
+  }
+
+  cleanup_backend_port_occupants(app, "启动前端口兜底清理");
 
   if is_backend_port_available() {
     return Ok(());
@@ -369,11 +509,17 @@ fn stop_backend(app: &tauri::AppHandle, reason: &str) {
     }
   };
 
-  let Some(mut child) = guard.take() else {
+  let child = guard.take();
+  drop(guard);
+
+  let Some(mut child) = child else {
     clear_backend_pid(app);
     return;
   };
 
+  let child_pid = child.id();
+
+  let mut wait_exit = false;
   match child.try_wait() {
     Ok(Some(status)) => {
       write_app_log(
@@ -381,39 +527,79 @@ fn stop_backend(app: &tauri::AppHandle, reason: &str) {
         "INFO",
         &format!("后端已退出，无需重复停止（{}）: {}", reason, status),
       );
-      clear_backend_pid(app);
-      return;
     }
-    Ok(None) => {}
+    Ok(None) => {
+      wait_exit = true;
+      if let Err(error) = kill_process_by_pid(child_pid) {
+        write_app_log(
+          app,
+          "WARN",
+          &format!(
+            "停止后端进程失败 PID={}（{}）: {}",
+            child_pid, reason, error
+          ),
+        );
+      }
+    }
     Err(error) => {
+      wait_exit = true;
       write_app_log(
         app,
         "WARN",
         &format!("检查后端进程状态失败（{}）: {}", reason, error),
       );
+
+      if let Err(kill_error) = kill_process_by_pid(child_pid) {
+        write_app_log(
+          app,
+          "WARN",
+          &format!(
+            "状态异常时停止后端进程失败 PID={}（{}）: {}",
+            child_pid, reason, kill_error
+          ),
+        );
+      }
     }
   }
 
-  if let Err(error) = child.kill() {
-    write_app_log(
-      app,
-      "WARN",
-      &format!("停止后端进程失败（{}）: {}", reason, error),
-    );
+  if wait_exit {
+    match wait_for_child_exit(&mut child, 3000) {
+      Ok(true) => {}
+      Ok(false) => write_app_log(
+        app,
+        "WARN",
+        &format!("等待后端进程退出超时（{}）", reason),
+      ),
+      Err(error) => write_app_log(
+        app,
+        "WARN",
+        &format!("等待后端进程退出失败（{}）: {}", reason, error),
+      ),
+    }
   }
 
-  if let Err(error) = child.wait() {
-    write_app_log(
-      app,
-      "WARN",
-      &format!("等待后端进程退出失败（{}）: {}", reason, error),
-    );
-    clear_backend_pid(app);
-    return;
+  for _ in 0..10 {
+    if is_backend_port_available() {
+      break;
+    }
+    sleep(Duration::from_millis(200));
+  }
+
+  if !is_backend_port_available() {
+    cleanup_backend_port_occupants(app, reason);
   }
 
   clear_backend_pid(app);
-  write_app_log(app, "INFO", &format!("已停止后端进程（{}）", reason));
+
+  if is_backend_port_available() {
+    write_app_log(app, "INFO", &format!("已停止后端进程（{}）", reason));
+  } else {
+    write_app_log(
+      app,
+      "WARN",
+      &format!("后端端口仍被占用（{}），请手动检查进程", reason),
+    );
+  }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
