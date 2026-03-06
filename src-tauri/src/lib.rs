@@ -1,15 +1,20 @@
 use chrono::Local;
-use std::fs::{OpenOptions, create_dir_all};
+use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file};
 use std::io::Write;
+use std::net::TcpListener;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::thread::sleep;
+use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 struct BackendState(Mutex<Option<Child>>);
 const BACKEND_EXE_NAME: &str = "local_v_backend.exe";
+const BACKEND_PID_FILE: &str = "backend.pid";
+const BACKEND_PORT: u16 = 56173;
 const LOG_FILE_APP: &str = "app.log";
 const LOG_FILE_BACKEND: &str = "backend.log";
 const LOG_FILE_FRONTEND: &str = "frontend.log";
@@ -105,6 +110,160 @@ fn append_frontend_log(
   append_log_line(&logs_dir.join(LOG_FILE_FRONTEND), &line)
 }
 
+fn backend_pid_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+  let app_data_dir = app
+    .path()
+    .app_data_dir()
+    .map_err(|error| format!("获取 appData 目录失败: {}", error))?;
+  create_dir_all(&app_data_dir)
+    .map_err(|error| format!("创建 appData 目录失败 {}: {}", app_data_dir.display(), error))?;
+  Ok(app_data_dir.join(BACKEND_PID_FILE))
+}
+
+fn store_backend_pid(app: &tauri::AppHandle, pid: u32) {
+  if let Ok(path) = backend_pid_path(app) {
+    let _ = std::fs::write(&path, pid.to_string());
+  }
+}
+
+fn clear_backend_pid(app: &tauri::AppHandle) {
+  if let Ok(path) = backend_pid_path(app) {
+    let _ = remove_file(path);
+  }
+}
+
+fn is_backend_port_available() -> bool {
+  TcpListener::bind(("127.0.0.1", BACKEND_PORT)).is_ok()
+}
+
+fn kill_process_by_pid(pid: u32) -> Result<(), String> {
+  #[cfg(target_os = "windows")]
+  {
+    let status = Command::new("taskkill")
+      .args(["/PID", &pid.to_string(), "/T", "/F"])
+      .status()
+      .map_err(|error| format!("结束残留进程失败: {}", error))?;
+
+    if status.success() {
+      return Ok(());
+    }
+
+    return Err(format!("结束残留进程失败，退出码: {}", status));
+  }
+
+  #[cfg(not(target_os = "windows"))]
+  {
+    let status = Command::new("kill")
+      .args(["-TERM", &pid.to_string()])
+      .status()
+      .map_err(|error| format!("结束残留进程失败: {}", error))?;
+
+    if status.success() {
+      return Ok(());
+    }
+
+    Err(format!("结束残留进程失败，退出码: {}", status))
+  }
+}
+
+fn is_expected_backend_process(pid: u32) -> bool {
+  #[cfg(target_os = "windows")]
+  {
+    let output = Command::new("tasklist")
+      .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+      .output();
+
+    if let Ok(output) = output {
+      let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+      return stdout.contains(&BACKEND_EXE_NAME.to_lowercase());
+    }
+
+    return false;
+  }
+
+  #[cfg(not(target_os = "windows"))]
+  {
+    let output = Command::new("ps")
+      .args(["-p", &pid.to_string(), "-o", "comm="])
+      .output();
+
+    if let Ok(output) = output {
+      let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+      return stdout.contains(&BACKEND_EXE_NAME.to_lowercase());
+    }
+
+    false
+  }
+}
+
+fn cleanup_stale_backend(app: &tauri::AppHandle) {
+  let pid_path = match backend_pid_path(app) {
+    Ok(path) => path,
+    Err(message) => {
+      write_app_log(app, "WARN", &message);
+      return;
+    }
+  };
+
+  let pid_text = match read_to_string(&pid_path) {
+    Ok(text) => text,
+    Err(_) => return,
+  };
+
+  let pid = match pid_text.trim().parse::<u32>() {
+    Ok(pid) => pid,
+    Err(_) => {
+      let _ = remove_file(&pid_path);
+      write_app_log(app, "WARN", "检测到损坏的后端 PID 文件，已清理");
+      return;
+    }
+  };
+
+  if !is_expected_backend_process(pid) {
+    let _ = remove_file(&pid_path);
+    write_app_log(
+      app,
+      "WARN",
+      &format!("检测到无效后端 PID 记录，已跳过清理 PID={}", pid),
+    );
+    return;
+  }
+
+  match kill_process_by_pid(pid) {
+    Ok(()) => write_app_log(app, "INFO", &format!("已清理残留后端进程 PID={}", pid)),
+    Err(message) => write_app_log(app, "WARN", &format!("清理残留后端进程失败 PID={}: {}", pid, message)),
+  }
+
+  for _ in 0..10 {
+    if is_backend_port_available() {
+      break;
+    }
+    sleep(Duration::from_millis(200));
+  }
+
+  let _ = remove_file(pid_path);
+}
+
+fn ensure_backend_port_ready(app: &tauri::AppHandle) -> Result<(), String> {
+  if is_backend_port_available() {
+    return Ok(());
+  }
+
+  cleanup_stale_backend(app);
+
+  if is_backend_port_available() {
+    return Ok(());
+  }
+
+  let message = "应用启动失败，请先关闭占用程序后再打开。".to_string();
+  write_app_log(
+    app,
+    "ERROR",
+    &format!("后端端口 {} 已被占用，无法启动应用", BACKEND_PORT),
+  );
+  Err(message)
+}
+
 fn backend_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
   let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -194,6 +353,7 @@ fn start_backend(app: &tauri::AppHandle) -> Result<Child, String> {
       message
     })?;
 
+  store_backend_pid(app, child.id());
   write_app_log(app, "INFO", &format!("后端已启动: {}", exe_path.display()));
   Ok(child)
 }
@@ -204,11 +364,13 @@ fn stop_backend(app: &tauri::AppHandle, reason: &str) {
     Ok(guard) => guard,
     Err(_) => {
       write_app_log(app, "ERROR", "停止后端失败：无法获取进程状态锁");
+      clear_backend_pid(app);
       return;
     }
   };
 
   let Some(mut child) = guard.take() else {
+    clear_backend_pid(app);
     return;
   };
 
@@ -219,6 +381,7 @@ fn stop_backend(app: &tauri::AppHandle, reason: &str) {
         "INFO",
         &format!("后端已退出，无需重复停止（{}）: {}", reason, status),
       );
+      clear_backend_pid(app);
       return;
     }
     Ok(None) => {}
@@ -245,9 +408,11 @@ fn stop_backend(app: &tauri::AppHandle, reason: &str) {
       "WARN",
       &format!("等待后端进程退出失败（{}）: {}", reason, error),
     );
+    clear_backend_pid(app);
     return;
   }
 
+  clear_backend_pid(app);
   write_app_log(app, "INFO", &format!("已停止后端进程（{}）", reason));
 }
 
@@ -257,9 +422,24 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![append_frontend_log])
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+      if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+      }
+    }))
     .setup(|app| {
       app.manage(BackendState(Mutex::new(None)));
       write_app_log(app.handle(), "INFO", "主程序启动");
+      cleanup_stale_backend(app.handle());
+
+      if let Err(message) = ensure_backend_port_ready(app.handle()) {
+        if let Some(win) = app.get_webview_window("main") {
+          let _ = win.emit("backend-error", message);
+        }
+        return Ok(());
+      }
 
       // Try to start backend with retry logic
       let mut backend_started = false;

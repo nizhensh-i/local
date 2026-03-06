@@ -26,9 +26,7 @@
 
 <script>
 import { getEffectivePassword } from '../utils/auth'
-
-const AUTH_KEY = 'local_v_logged_in'
-const REMEMBER_LOGIN_KEY = 'local_v_remember_login'
+import { AUTH_KEY, REMEMBER_LOGIN_KEY } from '../utils/auth-keys'
 
 export default {
   name: 'LoginPage',

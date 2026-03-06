@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import platform
+from datetime import datetime
 from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
@@ -22,12 +23,12 @@ def get_default_video_folder():
         else:
             return str(downloads)
     elif system == 'Darwin':  # macOS
-        videos = Path.home() / 'Movies'
         downloads = Path.home() / 'Downloads'
-        if videos.exists():
-            return str(videos)
-        elif downloads.exists():
+        videos = Path.home() / 'Movies'
+        if downloads.exists():
             return str(downloads)
+        elif videos.exists():
+            return str(videos)
         else:
             return str(videos)
     else:  # Linux
@@ -71,6 +72,7 @@ def _load_video_folder_from_config():
     except json.JSONDecodeError as e:
         print(f"JSON decode error in {config_path}: {e}")
         print(f"  File content might be corrupted")
+        _backup_broken_config_file(config_path)
     except Exception as e:
         print(f"Error loading config from {config_path}: {e}")
         import traceback
@@ -78,6 +80,17 @@ def _load_video_folder_from_config():
         return None
 
     return None
+
+
+def _backup_broken_config_file(config_path):
+    """Backup a broken JSON config so startup can recover cleanly next time."""
+    try:
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        broken_path = f"{config_path}.broken.{timestamp}"
+        os.replace(config_path, broken_path)
+        print(f"Backed up broken config to: {broken_path}")
+    except Exception as error:
+        print(f"Failed to backup broken config {config_path}: {error}")
 
 
 def get_config_path():
@@ -115,8 +128,7 @@ def get_config_path():
 
 
 # 视频文件夹路径（默认路径）
-# VIDEO_FOLDER_DEFAULT = get_default_video_folder()
-VIDEO_FOLDER_DEFAULT = '/Users/v/Downloads'
+VIDEO_FOLDER_DEFAULT = get_default_video_folder()
 
 def reload_video_folder():
     """Reload video folder configuration"""

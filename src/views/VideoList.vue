@@ -176,6 +176,7 @@ import PageHeader from '../components/PageHeader.vue'
 import VideoCard from '../components/VideoCard.vue'
 import { videoApi } from '../api/video'
 import { updatePassword } from '../utils/auth'
+import { AUTH_KEY, REMEMBER_LOGIN_KEY } from '../utils/auth-keys'
 import { isTauriRuntime } from '../utils/tauri'
 
 export default {
@@ -197,6 +198,7 @@ export default {
       currentPage: 1,
       pageSize: 12,
       sortBy: 'name',
+      folderAvailable: true,
       isMobile: window.innerWidth <= 768,
       isTauri: isTauriRuntime(),
       pagination: {
@@ -220,6 +222,9 @@ export default {
   
   computed: {
     emptyText() {
+      if (!this.folderAvailable) {
+        return '当前视频目录不可用，请重新选择文件夹。'
+      }
       if (this.searchKeyword) {
         return `未找到与“${this.searchKeyword}”相关的视频，请尝试更短关键词。`
       }
@@ -296,6 +301,7 @@ export default {
         
         if (response.data.success) {
           const videos = response.data.data?.videos || []
+          this.folderAvailable = response.data.data?.folder_exists !== false
           const pagination = response.data.data?.pagination || {
             total: 0,
             page: 1,
@@ -309,6 +315,7 @@ export default {
         }
       } catch (err) {
         const message = this.getErrorMessage(err)
+        this.folderAvailable = true
         this.error = message
         this.toastOnce('fetchVideos', 'error', '列表加载失败，请稍后重试：' + message)
       } finally {
@@ -367,7 +374,7 @@ export default {
 
       try {
         const { open } = await import('@tauri-apps/plugin-dialog')
-        const { writeTextFile, exists, mkdir } = await import('@tauri-apps/plugin-fs')
+        const { writeTextFile, exists, mkdir, remove, rename } = await import('@tauri-apps/plugin-fs')
         const { BaseDirectory, appDataDir } = await import('@tauri-apps/api/path')
 
         const selected = await open({
@@ -401,8 +408,19 @@ export default {
         }
         
         const payload = JSON.stringify({ video_folder: folderPath }, null, 2)
-        await writeTextFile('video_folder.json', payload, { 
-          baseDir: BaseDirectory.AppData 
+        const tempConfigName = 'video_folder.json.tmp'
+        if (await exists(tempConfigName, { baseDir: BaseDirectory.AppData })) {
+          await remove(tempConfigName, { baseDir: BaseDirectory.AppData })
+        }
+        await writeTextFile(tempConfigName, payload, {
+          baseDir: BaseDirectory.AppData
+        })
+        if (await exists('video_folder.json', { baseDir: BaseDirectory.AppData })) {
+          await remove('video_folder.json', { baseDir: BaseDirectory.AppData })
+        }
+        await rename(tempConfigName, 'video_folder.json', {
+          oldPathBaseDir: BaseDirectory.AppData,
+          newPathBaseDir: BaseDirectory.AppData
         })
 
         // Refresh cache and reload videos using server response instead of fixed delays
@@ -507,9 +525,15 @@ export default {
       this.passwordSaving = true
       try {
         await updatePassword(trimmedCurrentPassword, trimmedNextPassword)
-        this.$message.success('登录密码已更新')
+        sessionStorage.removeItem(AUTH_KEY)
+        localStorage.removeItem(REMEMBER_LOGIN_KEY)
         this.settingsDialogVisible = false
         this.resetPasswordForm()
+        this.$message.success('密码已修改，请重新登录')
+        this.$router.replace({
+          name: 'login',
+          query: { redirect: this.$route.fullPath }
+        })
       } catch (err) {
         this.$message.error(this.getErrorMessage(err))
       } finally {

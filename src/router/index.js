@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-const AUTH_KEY = 'local_v_logged_in'
+import { AUTH_KEY } from '../utils/auth-keys'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

@@ -120,6 +120,24 @@ def get_videos_cache():
 def get_videos():
     """获取视频列表接口"""
     try:
+        folder_exists = os.path.isdir(VIDEO_FOLDER)
+
+        if not folder_exists:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'videos': [],
+                    'folder_exists': False,
+                    'video_folder': VIDEO_FOLDER,
+                    'pagination': {
+                        'total': 0,
+                        'page': 1,
+                        'page_size': DEFAULT_PAGE_SIZE,
+                        'total_pages': 1
+                    }
+                }
+            })
+
         # 获取查询参数
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', DEFAULT_PAGE_SIZE))
@@ -139,6 +157,8 @@ def get_videos():
             'success': True,
             'data': {
                 'videos': result['videos'],
+                'folder_exists': True,
+                'video_folder': VIDEO_FOLDER,
                 'pagination': {
                     'total': result['total'],
                     'page': result['page'],
@@ -394,7 +414,7 @@ def get_network_info():
     """返回前端局域网访问地址建议"""
     frontend_port = request.args.get('frontend_port', '').strip()
     if IS_FROZEN:
-        frontend_port = '8990'
+        frontend_port = '56173'
     elif not frontend_port.isdigit():
         frontend_port = '3650'
 
@@ -488,6 +508,7 @@ def refresh_videos():
 def health_check():
     """健康检查接口"""
     config_path = config.get_config_path()
+    cached_video_count = len(cached_videos) if cached_videos else None
     return jsonify({
         'success': True,
         'message': 'Server is running',
@@ -497,7 +518,7 @@ def health_check():
         'config_exists': config_path and os.path.exists(config_path),
         'runtime_root': str(PROJECT_ROOT),
         'is_frozen': IS_FROZEN,
-        'video_count': len(get_videos_cache())
+        'video_count': cached_video_count
     })
 
 
@@ -623,8 +644,8 @@ if __name__ == '__main__':
     default_host ='0.0.0.0'
     host = os.getenv('LOCAL_V_HOST', default_host)
     
-    print(f"Listening on: {host}:8990")
+    print(f"Listening on: {host}:56173")
     print(f"Debug mode: {debug_mode}")
     print(f"=" * 60)
     
-    app.run(host=host, port=8990, debug=debug_mode)
+    app.run(host=host, port=56173, debug=debug_mode)

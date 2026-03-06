@@ -11,7 +11,7 @@ const getApiBaseUrl = () => {
   // 不能直接用于 http 请求，统一回落到本机回环地址。
   const hostname = window.location.hostname || '127.0.0.1'
   const protocol = window.location.protocol
-  const port = '8990'
+  const port = '56173'
 
   const isTauriHost = protocol === 'tauri:' || hostname.endsWith('tauri.localhost')
   if (isTauriHost || hostname === 'localhost' || hostname === '127.0.0.1') {

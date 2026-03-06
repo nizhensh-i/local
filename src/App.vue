@@ -72,6 +72,10 @@ export default {
           const msg = event.payload
           if (msg && !backendError.value) {
             backendError.value = msg
+            if (!startupReady.value) {
+              startupFailed.value = true
+              startupMessage.value = msg
+            }
             // eslint-disable-next-line no-console
             console.error('backend-error event:', msg)
           }
