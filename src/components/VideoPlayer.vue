@@ -1,27 +1,22 @@
 <template>
   <div class="video-player-container">
     <div class="video-wrapper" :class="{ 'player-ready': isPlayerReady }">
-      <VueVideoPlayer
-        ref="vuePlayerRef"
-        class="vjs-big-play-centered"
+      <video
+        ref="videoElementRef"
+        class="native-video"
         :src="src"
         :poster="poster"
-        :controls="true"
-        :autoplay="false"
-        preload="metadata"
-        :fluid="true"
-        :responsive="true"
-        :playback-rates="[0.5, 0.75, 1, 1.25, 1.5, 2]"
-        :html5="html5Options"
-        :control-bar="controlBarOptions"
-        @mounted="handleMounted"
-        @ready="handleReady"
-        @error="handlePlayerError"
-        @play="handlePlayerPlay"
-        @loadstart="clearPlayerError"
+        :preload="preload"
+        controls
+        playsinline
+        @loadstart="handleLoadStart"
+        @loadedmetadata="handleLoadedMetadata"
         @loadeddata="clearPlayerError"
+        @canplay="handleCanPlay"
+        @play="handlePlayerPlay"
         @timeupdate="saveProgress"
         @ended="handlePlayerEnded"
+        @error="handlePlayerError"
       />
     </div>
 
@@ -32,14 +27,8 @@
 </template>
 
 <script>
-import { VideoPlayer as VueVideoPlayer } from '@videojs-player/vue'
-
 export default {
   name: 'VideoPlayer',
-
-  components: {
-    VueVideoPlayer
-  },
 
   props: {
     src: {
@@ -57,6 +46,10 @@ export default {
     options: {
       type: Object,
       default: () => ({})
+    },
+    preload: {
+      type: String,
+      default: 'metadata'
     }
   },
 
@@ -64,58 +57,64 @@ export default {
     return {
       player: null,
       error: null,
-      isPlayerReady: false
+      isPlayerReady: false,
+      progressLoaded: false
     }
   },
 
-  computed: {
-    html5Options() {
-      return {
-        vhs: {
-          overrideNative: true,
-          enableLowInitialPlaylist: false,
-          smoothQualityChange: true,
-          bandwidth: 4194304
-        },
-        nativeVideoTracks: false,
-        nativeAudioTracks: false,
-        nativeTextTracks: false,
-        handlePartialData: true
-      }
-    },
-    controlBarOptions() {
-      return {
-        children: [
-          'playToggle',
-          'volumePanel',
-          'currentTimeDisplay',
-          'timeDivider',
-          'durationDisplay',
-          'progressControl',
-          'playbackRateMenuButton',
-          'fullscreenToggle'
-        ]
-      }
-    }
+  mounted() {
+    this.player = this.createPlayerFacade()
   },
 
   methods: {
-    handleMounted(payload) {
-      this.player = payload?.player || null
-      this.isPlayerReady = false
+    getVideoElement() {
+      return this.$refs.videoElementRef || null
     },
 
-    handleReady() {
-      this.isPlayerReady = true
-      this.$emit('ready', this.player)
+    createPlayerFacade() {
+      return {
+        play: () => this.getVideoElement()?.play(),
+        pause: () => this.getVideoElement()?.pause(),
+        paused: () => {
+          const video = this.getVideoElement()
+          return video ? video.paused : true
+        },
+        readyState: () => {
+          const video = this.getVideoElement()
+          return video ? video.readyState : 0
+        },
+        error: () => this.getVideoElement()?.error || null,
+        currentTime: (value) => {
+          const video = this.getVideoElement()
+          if (!video) return 0
+          if (typeof value === 'number') {
+            video.currentTime = value
+          }
+          return video.currentTime
+        },
+        duration: () => this.getVideoElement()?.duration || 0,
+        el: () => this.$el
+      }
+    },
+
+    handleLoadStart() {
+      this.isPlayerReady = false
+      this.progressLoaded = false
+      this.clearPlayerError()
+    },
+
+    handleLoadedMetadata() {
       this.loadProgress()
+    },
+
+    handleCanPlay() {
+      this.isPlayerReady = true
+      this.clearPlayerError()
+      this.$emit('ready', this.player)
     },
 
     clearPlayerError() {
       this.error = null
-      if (this.player && this.player.error()) {
-        this.player.error(null)
-      }
     },
 
     handlePlayerPlay() {
@@ -123,34 +122,21 @@ export default {
     },
 
     handlePlayerError() {
-      const currentPlayer = this.player
-      if (!currentPlayer) return
+      const video = this.getVideoElement()
+      if (!video) return
 
-      const playerError = currentPlayer.error()
-      setTimeout(() => {
-        if (!this.player) return
+      const mediaError = video.error
+      if (!mediaError) {
+        return
+      }
 
-        const videoElement = this.player.el()?.querySelector('video')
-        const readyState = this.player.readyState()
-        const canPlay = Boolean(videoElement && videoElement.readyState >= 2)
-        const networkState = videoElement ? videoElement.networkState : 0
+      if (mediaError.code === 4) {
+        this.error = '视频格式不支持，请确保视频使用浏览器可播放的编码。'
+      } else {
+        this.error = `视频播放错误: ${mediaError.message || '未知错误'}`
+      }
 
-        if (networkState === 2 || canPlay || readyState >= 2) {
-          this.clearPlayerError()
-          return
-        }
-
-        if (playerError && playerError.code === 4) {
-          this.error = `视频格式不支持: ${playerError.message}。请确保视频使用 H.264 编码。`
-          this.$emit('error', playerError)
-          return
-        }
-
-        if (playerError) {
-          this.error = `视频播放错误: ${playerError.message}`
-          this.$emit('error', playerError)
-        }
-      }, 2000)
+      this.$emit('error', mediaError)
     },
 
     handlePlayerEnded() {
@@ -159,10 +145,11 @@ export default {
     },
 
     saveProgress() {
-      if (!this.player || !this.src) return
+      const video = this.getVideoElement()
+      if (!video || !this.src) return
 
-      const currentTime = this.player.currentTime()
-      const duration = this.player.duration()
+      const currentTime = video.currentTime
+      const duration = Number.isFinite(video.duration) ? video.duration : 0
 
       if (duration > 0 && currentTime < duration - 5) {
         const videoId = this.getVideoId()
@@ -176,30 +163,34 @@ export default {
     },
 
     loadProgress() {
-      if (!this.player) return
+      if (this.progressLoaded) return
+
+      const video = this.getVideoElement()
+      if (!video) return
 
       const videoId = this.getVideoId()
       const saved = localStorage.getItem(`video_progress_${videoId}`)
+      this.progressLoaded = true
 
-      if (saved) {
-        try {
-          const progressData = JSON.parse(saved)
-          const daysSinceSaved = (Date.now() - progressData.timestamp) / (1000 * 60 * 60 * 24)
+      if (!saved) return
 
-          if (daysSinceSaved < 7) {
-            this.player.currentTime(progressData.currentTime)
+      try {
+        const progressData = JSON.parse(saved)
+        const daysSinceSaved = (Date.now() - progressData.timestamp) / (1000 * 60 * 60 * 24)
 
-            this.$notify({
-              title: '继续播放',
-              message: `从 ${this.formatTime(progressData.currentTime)} 继续播放`,
-              type: 'info',
-              duration: 3000,
-              position: 'top-right'
-            })
-          }
-        } catch (e) {
-          console.warn('Failed to load progress:', e)
+        if (daysSinceSaved < 7 && Number.isFinite(progressData.currentTime)) {
+          video.currentTime = progressData.currentTime
+
+          this.$notify({
+            title: '继续播放',
+            message: `从 ${this.formatTime(progressData.currentTime)} 继续播放`,
+            type: 'info',
+            duration: 3000,
+            position: 'top-right'
+          })
         }
+      } catch (e) {
+        console.warn('Failed to load progress:', e)
       }
     },
 
@@ -209,9 +200,13 @@ export default {
     },
 
     getVideoId() {
-      const url = new URL(this.src)
-      const filename = url.pathname.split('/').pop()
-      return this.$route.query.id || filename
+      try {
+        const url = new URL(this.src, window.location.href)
+        const filename = decodeURIComponent(url.pathname.split('/').pop() || '')
+        return this.$route.query.id || filename || this.src
+      } catch (_) {
+        return this.$route.query.id || this.src
+      }
     },
 
     formatTime(seconds) {
@@ -221,21 +216,18 @@ export default {
     },
 
     play() {
-      if (this.player) {
-        this.player.play()
-      }
+      this.getVideoElement()?.play()
     },
 
     pause() {
-      if (this.player) {
-        this.player.pause()
-      }
+      this.getVideoElement()?.pause()
     }
   },
 
   watch: {
     src() {
       this.isPlayerReady = false
+      this.progressLoaded = false
       this.clearPlayerError()
     }
   }
@@ -253,72 +245,26 @@ export default {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background-color: #111827;
 }
 
-.video-wrapper :deep(.video-js) {
+.native-video {
   width: 100%;
-  height: auto;
-  aspect-ratio: 16/9;
-  font-size: 14px;
+  height: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
   background-color: #111827;
 }
 
-.video-wrapper :deep(.vjs-poster) {
-  background-color: #111827;
-}
-
-.video-wrapper :deep(.vjs-big-play-button) {
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%);
-  margin: 0 !important;
-  transition: none !important;
-}
-
-.video-wrapper:not(.player-ready) :deep(.vjs-big-play-button) {
+.video-wrapper:not(.player-ready) .native-video {
   opacity: 0;
-  pointer-events: none;
 }
 
-.video-wrapper.player-ready :deep(.vjs-big-play-button) {
+.video-wrapper.player-ready .native-video {
   opacity: 1;
-}
-
-.video-wrapper :deep(.vjs-control-bar) {
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-}
-
-.video-wrapper :deep(.vjs-current-time),
-.video-wrapper :deep(.vjs-duration),
-.video-wrapper :deep(.vjs-time-divider) {
-  display: flex !important;
-  align-items: center;
-}
-
-.video-wrapper :deep(.vjs-play-control .vjs-icon-placeholder::before) {
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.video-wrapper :deep(.vjs-playing .vjs-play-control .vjs-icon-placeholder::before),
-.video-wrapper :deep(.vjs-paused .vjs-play-control .vjs-icon-placeholder::before) {
-  transform: scale(1);
-}
-
-.video-wrapper :deep(.vjs-play-control:hover .vjs-icon-placeholder::before) {
-  transform: scale(1.08);
 }
 
 .error-message {
   margin-top: 20px;
-}
-
-@media (max-width: 768px) {
-  .video-wrapper :deep(.video-js) {
-    font-size: 12px;
-  }
-
-  .video-wrapper :deep(.vjs-control-bar) {
-    height: 3em;
-  }
 }
 </style>

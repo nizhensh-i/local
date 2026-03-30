@@ -134,6 +134,7 @@
 import { ArrowLeft } from '@element-plus/icons-vue'
 import VideoPlayer from '../components/VideoPlayer.vue'
 import { videoApi } from '../api/video'
+import { resolvePlaybackSource } from '../utils/video-source'
 
 const DEFAULT_POSTER = new URL('../assets/video-placeholder.svg', import.meta.url).href
 const POSTER_LOAD_TIMEOUT_MS = 3500
@@ -259,7 +260,7 @@ export default {
           const streamUrl = videoApi.getVideoStreamUrl(this.filename)
           const posterUrl = videoApi.getVideoPosterUrl(this.filename)
           this.videoPoster = await this.resolvePosterUrl(posterUrl)
-          this.videoSrc = streamUrl
+          this.videoSrc = await resolvePlaybackSource(video, streamUrl)
           this.isPlayerMounted = true
           this.fileSize = video.size_formatted
           this.modifyTime = video.mtime_formatted
