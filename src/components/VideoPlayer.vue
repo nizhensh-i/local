@@ -8,7 +8,7 @@
         :poster="poster"
         :controls="true"
         :autoplay="false"
-        preload="auto"
+        preload="metadata"
         :fluid="true"
         :responsive="true"
         :playback-rates="[0.5, 0.75, 1, 1.25, 1.5, 2]"

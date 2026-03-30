@@ -3,10 +3,12 @@ import sys
 import json
 import socket
 import ntpath
+import urllib.parse
 from pathlib import Path
 from flask import Flask, jsonify, request, Response, send_file, send_from_directory
 from flask_cors import CORS
 import mimetypes
+from werkzeug.exceptions import RequestedRangeNotSatisfiable
 import config
 from config import VIDEO_FOLDER, DEFAULT_PAGE_SIZE, PROJECT_ROOT, IS_FROZEN, reload_video_folder
 from datetime import datetime
@@ -33,7 +35,7 @@ CORS(app, resources={
         ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Range", "Accept"],
-        "expose_headers": ["Content-Range", "Accept-Ranges", "Content-Length"],
+        "expose_headers": ["Content-Range", "Accept-Ranges", "Content-Length", "ETag", "Last-Modified"],
         "supports_credentials": True
     }
 })
@@ -116,6 +118,24 @@ def get_videos_cache():
     return cached_videos
 
 
+def _guess_video_mimetype(path):
+    """Guess a stable mimetype for direct browser playback."""
+    mime_type, _ = mimetypes.guess_type(path)
+    if mime_type:
+        return mime_type
+
+    ext = os.path.splitext(path)[1].lower()
+    mime_types = {
+        '.mp4': 'video/mp4',
+        '.mov': 'video/quicktime',
+        '.mkv': 'video/x-matroska',
+        '.webm': 'video/webm',
+        '.avi': 'video/x-msvideo',
+        '.flv': 'video/x-flv'
+    }
+    return mime_types.get(ext, 'application/octet-stream')
+
+
 @app.route('/api/videos', methods=['GET'])
 def get_videos():
     """获取视频列表接口"""
@@ -176,119 +196,36 @@ def get_videos():
 
 
 def send_file_partial(path, filename):
-    """支持 Range 请求的文件发送 - 优化大文件支持"""
+    """使用 Flask/Werkzeug 内建条件响应处理本地视频 Range 请求。"""
     try:
         file_size = os.path.getsize(path)
-        range_header = request.headers.get('Range', None)
-        
-        # 获取 MIME 类型
-        mime_type, _ = mimetypes.guess_type(path)
-        if not mime_type:
-            # 根据文件扩展名确定 MIME 类型
-            ext = os.path.splitext(path)[1].lower()
-            mime_types = {
-                '.mp4': 'video/mp4',
-                '.mov': 'video/quicktime',
-                '.mkv': 'video/x-matroska',
-                '.webm': 'video/webm',
-                '.avi': 'video/x-msvideo',
-                '.flv': 'video/x-flv'
-            }
-            mime_type = mime_types.get(ext, 'video/mp4')
-        
-        # 对文件名进行URL编码，避免中文等非ASCII字符导致的编码问题
-        import urllib.parse
+        mime_type = _guess_video_mimetype(path)
         safe_filename = urllib.parse.quote(filename, safe='')
-        
-        if range_header:
-            # 解析 Range 请求，处理各种格式
-            try:
-                byte_ranges = range_header.strip().split('=')[-1]
-                range_parts = byte_ranges.split('-')
-                
-                start_str, end_str = range_parts[0], range_parts[1] if len(range_parts) > 1 else ''
-                
-                start = int(start_str) if start_str else 0
-                end = int(end_str) if end_str else file_size - 1
-                
-                # 确保范围有效
-                start = max(0, start)
-                end = min(file_size - 1, end)
-                
-                # 确保 start <= end
-                if start > end:
-                    start = end
-                
-                content_length = end - start + 1
-                
-                # 读取指定范围的数据
-                def generate():
-                    with open(path, 'rb') as f:
-                        f.seek(start)
-                        bytes_read = 0
-                        chunk_size = 8192  # 8KB chunks
-                        while bytes_read < content_length:
-                            bytes_to_read = min(chunk_size, content_length - bytes_read)
-                            data = f.read(bytes_to_read)
-                            if not data:
-                                break
-                            bytes_read += len(data)
-                            yield data
-                
-                # 构建响应
-                headers = {
-                    'Content-Type': mime_type,
-                    'Content-Length': str(content_length),
-                    'Content-Range': f'bytes {start}-{end}/{file_size}',
-                    'Accept-Ranges': 'bytes',
-                    'Content-Disposition': f'inline; filename*=UTF-8\'\'{safe_filename}',
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0'
-                }
-                
-                return Response(
-                    generate(),
-                    status=206,
-                    headers=headers,
-                    direct_passthrough=True
-                )
-            
-            except Exception as e:
-                # Range 解析失败，返回 416 Requested Range Not Satisfiable
-                headers = {
-                    'Content-Type': mime_type,
-                    'Content-Range': f'bytes */{file_size}',
-                    'Accept-Ranges': 'bytes'
-                }
-                return Response(status=416, headers=headers)
-        
-        else:
-            # 普通请求，返回整个文件（使用流式传输）
-            def generate():
-                with open(path, 'rb') as f:
-                    chunk = f.read(8192)
-                    while chunk:
-                        yield chunk
-                        chunk = f.read(8192)
-            
-            headers = {
-                'Content-Type': mime_type,
-                'Content-Length': str(file_size),
-                'Accept-Ranges': 'bytes',
-                'Content-Disposition': f'inline; filename*=UTF-8\'\'{safe_filename}',
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
-            }
-            
-            return Response(
-                generate(),
-                status=200,
-                headers=headers,
-                direct_passthrough=True
-            )
-    
+        response = send_file(
+            path,
+            mimetype=mime_type,
+            as_attachment=False,
+            conditional=True,
+            etag=True,
+            last_modified=os.path.getmtime(path),
+            max_age=0
+        )
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Content-Disposition'] = f'inline; filename*=UTF-8\'\'{safe_filename}'
+        # 允许浏览器重用已缓冲的范围数据，但每次重新打开时仍然进行校验。
+        response.headers['Cache-Control'] = 'no-cache'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+    except RequestedRangeNotSatisfiable:
+        headers = {
+            'Content-Type': mime_type,
+            'Content-Range': f'bytes */{file_size}',
+            'Accept-Ranges': 'bytes'
+        }
+        return Response(status=416, headers=headers)
+
     except FileNotFoundError:
         return jsonify({
             'success': False,
@@ -309,7 +246,7 @@ def send_file_partial(path, filename):
         }), 500
 
 
-@app.route('/api/videos/<filename>', methods=['GET'])
+@app.route('/api/videos/<filename>', methods=['GET', 'HEAD'])
 def stream_video(filename):
     """视频流式传输接口"""
     try:
@@ -648,4 +585,4 @@ if __name__ == '__main__':
     print(f"Debug mode: {debug_mode}")
     print(f"=" * 60)
     
-    app.run(host=host, port=56173, debug=debug_mode)
+    app.run(host=host, port=56173, debug=debug_mode, threaded=True)
