@@ -6,8 +6,8 @@ from datetime import datetime
 from config import VIDEO_EXTENSIONS
 
 
-class ScanLimitExceededError(RuntimeError):
-    """Raised when a scan exceeds safety limits."""
+class ScanTimeoutError(RuntimeError):
+    """Raised when directory scanning exceeds the safety timeout."""
 
 
 def generate_video_id(relative_path):
@@ -38,7 +38,7 @@ def generate_video_key(category_id, relative_path):
     return digest
 
 
-def scan_video_files(video_folder, recursive=True, category=None, max_duration_sec=12, max_depth=8):
+def scan_video_files(video_folder, recursive=True, category=None, max_duration_sec=30):
     """扫描视频文件夹，返回视频文件列表
     
     Args:
@@ -58,31 +58,27 @@ def scan_video_files(video_folder, recursive=True, category=None, max_duration_s
     
     videos = []
     video_path = Path(video_folder)
-    category_id = category.get('id') if isinstance(category, dict) else ''
-    category_name = category.get('name') if isinstance(category, dict) else ''
     started_at = time.monotonic()
-    for root, dirs, files in os.walk(video_folder, topdown=True):
-        elapsed = time.monotonic() - started_at
-        if elapsed > max_duration_sec:
-            raise ScanLimitExceededError(f"扫描超时，请不要选择磁盘根目录或超大目录（>{max_duration_sec} 秒）")
-
-        relative_root = os.path.relpath(root, video_folder)
-        depth = 0 if relative_root in ('.', '') else len(Path(relative_root).parts)
-        if recursive:
-            dirs[:] = [item for item in dirs if depth < max_depth]
-        else:
-            dirs[:] = []
-
-        for filename in files:
-            file_path = Path(root) / filename
-            if file_path.suffix.lower() not in VIDEO_EXTENSIONS:
-                continue
-
+    
+    # 使用递归或非递归扫描
+    if recursive:
+        # 递归扫描所有子文件夹
+        file_pattern = "**/*"
+    else:
+        # 只扫描当前文件夹
+        file_pattern = "*"
+    
+    for file_path in video_path.glob(file_pattern):
+        if time.monotonic() - started_at > max_duration_sec:
+            raise ScanTimeoutError(f"扫描超时（超过 {max_duration_sec} 秒），请缩小目录范围后重试")
+        if file_path.is_file() and file_path.suffix.lower() in VIDEO_EXTENSIONS:
             stat = file_path.stat()
             relative_path = str(file_path.relative_to(video_path)).replace('\\', '/')
             subfolder = str(Path(relative_path).parent).replace('\\', '/')
             if subfolder == '.':
                 subfolder = ''
+            category_id = category.get('id') if isinstance(category, dict) else ''
+            category_name = category.get('name') if isinstance(category, dict) else ''
             video_key = generate_video_key(category_id or 'default', relative_path)
             videos.append({
                 'id': generate_video_id(f"{category_id}:{relative_path}"),
@@ -99,7 +95,7 @@ def scan_video_files(video_folder, recursive=True, category=None, max_duration_s
                 'category_name': category_name,
                 'video_key': video_key
             })
-
+    
     print(f"Scanned {len(videos)} videos from {video_folder}")
     return videos
 

@@ -546,8 +546,7 @@ export default {
         })
 
         if (!selected) return
-        const folder = Array.isArray(selected) ? selected[0] : selected
-        this.categoryForm.folder = folder
+        this.categoryForm.folder = Array.isArray(selected) ? selected[0] : selected
       } catch (err) {
         const message = this.getErrorMessage(err)
         this.toastOnce('pickFolder', 'error', '选择文件夹失败：' + message)
