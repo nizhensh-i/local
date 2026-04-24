@@ -38,7 +38,7 @@ def generate_video_key(category_id, relative_path):
     return digest
 
 
-def scan_video_files(video_folder, recursive=True, category=None, max_duration_sec=12, max_entries=12000, max_depth=8):
+def scan_video_files(video_folder, recursive=True, category=None, max_duration_sec=12, max_depth=8):
     """扫描视频文件夹，返回视频文件列表
     
     Args:
@@ -61,8 +61,6 @@ def scan_video_files(video_folder, recursive=True, category=None, max_duration_s
     category_id = category.get('id') if isinstance(category, dict) else ''
     category_name = category.get('name') if isinstance(category, dict) else ''
     started_at = time.monotonic()
-    visited_entries = 0
-
     for root, dirs, files in os.walk(video_folder, topdown=True):
         elapsed = time.monotonic() - started_at
         if elapsed > max_duration_sec:
@@ -74,10 +72,6 @@ def scan_video_files(video_folder, recursive=True, category=None, max_duration_s
             dirs[:] = [item for item in dirs if depth < max_depth]
         else:
             dirs[:] = []
-
-        visited_entries += len(dirs) + len(files)
-        if visited_entries > max_entries:
-            raise ScanLimitExceededError(f"目录内容过多，请不要选择磁盘根目录或超大目录（>{max_entries} 个项目）")
 
         for filename in files:
             file_path = Path(root) / filename
