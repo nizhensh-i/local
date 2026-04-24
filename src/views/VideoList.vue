@@ -13,25 +13,10 @@
     />
 
     <div class="content-container">
-      <section class="category-panel">
-        <div class="category-panel-header">
-          <div>
-            <h2 class="panel-title">资源分类</h2>
-            <p class="panel-subtitle">每个分类绑定一个文件夹，默认递归读取其子文件夹内容。</p>
-          </div>
-          <el-button type="primary" plain @click="openCategoryDialog">
-            新增分类
-          </el-button>
-        </div>
-
-        <el-empty v-if="!loading && categories.length === 0" description="还没有分类，先新增一个分类并选择文件夹。">
-          <el-button type="primary" @click="openCategoryDialog">
-            新增分类
-          </el-button>
-        </el-empty>
-
-        <template v-else>
+      <section v-if="categories.length > 0 || isTauri" class="category-toolbar-bar">
+        <div class="category-toolbar-main">
           <el-tabs
+            v-if="categories.length > 0"
             v-model="activeCategoryId"
             type="card"
             class="category-tabs"
@@ -43,11 +28,11 @@
               :key="category.id"
               :name="category.id"
               :label="category.name"
-              :closable="categories.length > 1"
+              :closable="Boolean(isTauri && categories.length > 1)"
             />
           </el-tabs>
 
-          <div v-if="activeCategoryId" class="category-toolbar">
+          <div v-if="activeCategoryId" class="category-toolbar-actions">
             <el-select
               v-model="activeSubfolder"
               class="subfolder-select"
@@ -64,12 +49,37 @@
               />
             </el-select>
 
-            <el-tag v-if="activeCategoryName" type="info" effect="plain">
-              当前分类：{{ activeCategoryName }}
+            <el-tag v-if="activeCategoryName" type="info" effect="plain" class="category-tag">
+              {{ activeCategoryName }}
             </el-tag>
           </div>
-        </template>
+        </div>
+
+        <el-button v-if="isTauri" type="primary" plain class="category-add-button" @click="openCategoryDialog">
+          <el-icon><i-ep-Plus /></el-icon>
+          新增分类
+        </el-button>
       </section>
+
+      <div v-if="!loading && categories.length === 0" class="empty-container">
+        <div class="scene-empty-card">
+          <img src="/man.png" alt="" class="scene-empty-illustration" />
+          <div class="scene-empty-content">
+            <h3 class="scene-empty-title">还没有分类</h3>
+            <p class="scene-empty-text">先在宿主电脑上新建一个分类，并为它绑定本地视频文件夹。</p>
+          </div>
+          <div class="scene-empty-actions">
+            <el-button
+              v-if="isTauri"
+              type="primary"
+              @click="openCategoryDialog"
+            >
+              新增分类
+            </el-button>
+            <span v-else class="category-empty-note">当前设备仅支持浏览，新增分类请在宿主电脑上操作。</span>
+          </div>
+        </div>
+      </div>
 
       <div v-if="loading" class="loading-container">
         <div class="loading-surface">
@@ -81,8 +91,13 @@
       </div>
 
       <div v-else-if="categories.length > 0 && videos.length === 0" class="empty-container">
-        <el-empty :description="emptyText">
-          <template #default>
+        <div class="scene-empty-card scene-empty-card--soft">
+          <img src="/man.png" alt="" class="scene-empty-illustration scene-empty-illustration--small" />
+          <div class="scene-empty-content">
+            <h3 class="scene-empty-title">这个分类暂时空空的</h3>
+            <p class="scene-empty-text">{{ emptyText }}</p>
+          </div>
+          <div class="scene-empty-actions">
             <el-button
               v-if="!searchKeyword"
               type="primary"
@@ -91,8 +106,8 @@
             >
               刷新列表
             </el-button>
-          </template>
-        </el-empty>
+          </div>
+        </div>
       </div>
 
       <div v-else-if="videos.length > 0" class="video-grid">
@@ -163,7 +178,7 @@
 
         <div class="dialog-actions">
           <el-button @click="categoryDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="categorySaving" @click="submitCategory">
+          <el-button type="primary" :loading="categorySaving" :disabled="!canSubmitCategory" @click="submitCategory">
             保存分类
           </el-button>
         </div>
@@ -355,6 +370,9 @@ export default {
     },
     activeCategoryName() {
       return this.categories.find((item) => item.id === this.activeCategoryId)?.name || ''
+    },
+    canSubmitCategory() {
+      return Boolean(this.categoryForm.name.trim() && this.categoryForm.folder.trim())
     }
   },
 
@@ -829,62 +847,78 @@ export default {
 .content-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 20px 24px;
+  padding: 14px 20px 24px;
 }
 
-.category-panel {
+.category-toolbar-bar {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  padding: 16px;
-  margin-bottom: 18px;
-}
-
-.category-panel-header {
+  padding: 10px 12px;
+  margin-bottom: 12px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: flex-start;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
-.panel-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.panel-subtitle {
-  margin: 6px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
+.category-toolbar-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .category-tabs :deep(.el-tabs__header) {
-  margin-bottom: 10px;
+  margin-bottom: 0;
+}
+
+.category-tabs {
+  flex: 1;
+  min-width: 0;
 }
 
 .category-tabs :deep(.el-tabs__nav-wrap::after) {
   display: none;
 }
 
-.category-toolbar {
+.category-tabs :deep(.el-tabs__item) {
+  height: 34px;
+  line-height: 34px;
+}
+
+.category-toolbar-actions {
   display: flex;
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .subfolder-select {
-  width: 240px;
+  width: 180px;
   max-width: 100%;
 }
 
+.category-tag {
+  height: 32px;
+  line-height: 30px;
+}
+
+.category-add-button {
+  flex-shrink: 0;
+}
+
+.category-empty-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .loading-container {
+  padding: 20px 4px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .loading-surface,
@@ -898,8 +932,8 @@ export default {
 
 .grid-container {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
 }
 
 .video-grid-item {
@@ -908,12 +942,12 @@ export default {
 
 .pagination-container {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 18px;
+  justify-content: center;
+  margin-top: 14px;
 }
 
 .error-alert {
-  margin-top: 16px;
+  margin-bottom: 20px;
 }
 
 .folder-picker {
@@ -986,9 +1020,60 @@ export default {
   position: absolute;
 }
 
+.scene-empty-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  min-height: 260px;
+  padding: 12px 4px;
+}
+
+.scene-empty-card--soft {
+  min-height: 220px;
+}
+
+.scene-empty-illustration {
+  width: 152px;
+  height: 152px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 14px 24px rgba(37, 99, 235, 0.16));
+}
+
+.scene-empty-illustration--small {
+  width: 128px;
+  height: 128px;
+}
+
+.scene-empty-content {
+  max-width: 360px;
+}
+
+.scene-empty-title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.scene-empty-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.scene-empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 1199px) {
   .grid-container {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   }
 }
 
@@ -997,27 +1082,59 @@ export default {
     padding: 0 12px 16px;
   }
 
-  .category-panel-header {
+  .category-toolbar-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .category-toolbar-main {
+    width: 100%;
     flex-direction: column;
     align-items: stretch;
   }
 
-  .loading-container,
-  .grid-container {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .category-toolbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .subfolder-select {
+    width: 100%;
+  }
+
+  .category-add-button {
+    width: 100%;
   }
 
   .folder-picker {
     grid-template-columns: 1fr;
   }
 
-  .pagination-container {
+  .scene-empty-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
+  }
+
+  .scene-empty-content {
+    max-width: 100%;
+  }
+
+  .scene-empty-actions {
     justify-content: center;
+  }
+
+  .grid-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .pagination-container {
+    justify-content: flex-start;
   }
 }
 
-@media (max-width: 480px) {
-  .loading-container,
+@media (max-width: 359px) {
   .grid-container {
     grid-template-columns: 1fr;
   }
