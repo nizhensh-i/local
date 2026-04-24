@@ -31,7 +31,7 @@
                 <span class="category-tab-label">
                   <span class="category-tab-name">{{ category.name }}</span>
                   <el-button
-                    v-if="isTauri && categories.length > 1"
+                    v-if="isTauri"
                     text
                     class="category-tab-close"
                     @click.stop="removeCategory(category.id)"
@@ -407,6 +407,38 @@ export default {
       this.isMobile = window.innerWidth <= 768
     },
 
+    isDangerousRootFolder(folderPath) {
+      const normalized = String(folderPath || '').trim()
+      if (!normalized) return false
+
+      if (/^[A-Za-z]:[\\/]*$/.test(normalized)) {
+        return true
+      }
+
+      return ['/', '/Users', '/Volumes', '/home', '/mnt'].includes(normalized.replace(/\/+$/, '') || '/')
+    },
+
+    async confirmRiskyFolder(folderPath) {
+      if (!this.isDangerousRootFolder(folderPath)) {
+        return true
+      }
+
+      try {
+        await ElMessageBox.confirm(
+          '你选择的可能是磁盘根目录或系统级目录，递归扫描可能很慢，甚至触发扫描保护。确定继续吗？',
+          '高风险目录提醒',
+          {
+            type: 'warning',
+            confirmButtonText: '继续选择',
+            cancelButtonText: '重新选择'
+          }
+        )
+        return true
+      } catch {
+        return false
+      }
+    },
+
     async fetchVideos() {
       this.loading = true
       this.error = null
@@ -546,7 +578,11 @@ export default {
         })
 
         if (!selected) return
-        this.categoryForm.folder = Array.isArray(selected) ? selected[0] : selected
+        const folder = Array.isArray(selected) ? selected[0] : selected
+        if (!(await this.confirmRiskyFolder(folder))) {
+          return
+        }
+        this.categoryForm.folder = folder
       } catch (err) {
         const message = this.getErrorMessage(err)
         this.toastOnce('pickFolder', 'error', '选择文件夹失败：' + message)
@@ -654,6 +690,9 @@ export default {
         const folderExists = await exists(folder)
         if (!folderExists) {
           throw new Error('选中的目录不存在')
+        }
+        if (!(await this.confirmRiskyFolder(folder))) {
+          return
         }
 
         const current = await this.readConfigData()

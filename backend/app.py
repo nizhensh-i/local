@@ -13,7 +13,7 @@ from werkzeug.exceptions import RequestedRangeNotSatisfiable
 
 import config
 from config import DEFAULT_PAGE_SIZE, PROJECT_ROOT, IS_FROZEN, reload_video_config
-from utils import scan_video_files, filter_and_sort_videos, paginate_videos, format_file_size
+from utils import scan_video_files, filter_and_sort_videos, paginate_videos, format_file_size, ScanLimitExceededError
 
 app = Flask(__name__)
 
@@ -291,6 +291,11 @@ def get_videos():
             )
         })
 
+    except ScanLimitExceededError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 422
     except Exception as e:
         return jsonify({
             'success': False,
@@ -480,6 +485,13 @@ def refresh_videos():
             'video_count': video_count,
             'categories': _public_categories()
         })
+    except ScanLimitExceededError as e:
+        print(f"[ERR] Failed to refresh video cache: {e}")
+        cached_index = None
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 422
     except Exception as e:
         print(f"[ERR] Failed to refresh video cache: {e}")
         import traceback
