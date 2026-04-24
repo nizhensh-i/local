@@ -112,10 +112,8 @@ def _load_video_folder_from_config():
         with open(config_path, 'r', encoding='utf-8') as file:
             data = json.load(file)
         normalized = _normalize_categories(data)
-        if normalized['categories']:
-            print(f"Loaded {len(normalized['categories'])} categories from config")
-            return normalized
-        print(f"No usable category config in: {config_path}")
+        print(f"Loaded {len(normalized['categories'])} categories from config")
+        return normalized
     except json.JSONDecodeError as e:
         print(f"JSON decode error in {config_path}: {e}")
         print(f"  File content might be corrupted")
@@ -196,7 +194,7 @@ def reload_video_config():
     global VIDEO_CONFIG, VIDEO_FOLDER, VIDEO_CATEGORIES, ACTIVE_CATEGORY_ID
 
     configured = _load_video_folder_from_config()
-    VIDEO_CONFIG = configured or _build_default_config()
+    VIDEO_CONFIG = configured if configured is not None else _build_default_config()
 
     valid_categories = []
     for item in VIDEO_CONFIG['categories']:

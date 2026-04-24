@@ -114,17 +114,19 @@
         </transition-group>
 
         <div class="pagination-container">
-          <el-pagination
-            v-model:current-page="currentPage"
-            v-model:page-size="pageSize"
-            :total="pagination.total"
-            :page-sizes="[12, 24, 48]"
-            :layout="paginationLayout"
-            size="small"
-            background
-            @size-change="handlePageSizeChange"
-            @current-change="handlePageChange"
-          />
+          <el-config-provider :locale="zhCn">
+            <el-pagination
+              v-model:current-page="currentPage"
+              v-model:page-size="pageSize"
+              :total="pagination.total"
+              :page-sizes="[12, 24, 48]"
+              :layout="paginationLayout"
+              size="small"
+              background
+              @size-change="handlePageSizeChange"
+              @current-change="handlePageChange"
+            />
+          </el-config-provider>
         </div>
       </div>
 
@@ -151,7 +153,7 @@
             v-model="categoryForm.name"
             maxlength="20"
             show-word-limit
-            placeholder="例如：欧美、国内、短剧"
+            placeholder="例如：科幻、短剧"
           />
         </el-form-item>
 
@@ -270,6 +272,7 @@
 </template>
 
 <script>
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { ElMessageBox } from 'element-plus'
 import PageHeader from '../components/PageHeader.vue'
 import VideoCard from '../components/VideoCard.vue'
@@ -291,6 +294,7 @@ export default {
 
   data() {
     return {
+      zhCn,
       videos: [],
       categories: [],
       subfolderOptions: [],
