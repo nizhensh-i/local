@@ -27,7 +27,13 @@ def format_file_size(size_bytes):
     return f"{size:.1f} {size_names[i]}"
 
 
-def scan_video_files(video_folder, recursive=False):
+def generate_video_key(category_id, relative_path):
+    normalized_path = str(Path(relative_path)).replace('\\', '/')
+    digest = hashlib.md5(f"{category_id}:{normalized_path}".encode('utf-8')).hexdigest()
+    return digest
+
+
+def scan_video_files(video_folder, recursive=True, category=None):
     """扫描视频文件夹，返回视频文件列表
     
     Args:
@@ -59,9 +65,15 @@ def scan_video_files(video_folder, recursive=False):
     for file_path in video_path.glob(file_pattern):
         if file_path.is_file() and file_path.suffix.lower() in VIDEO_EXTENSIONS:
             stat = file_path.stat()
-            relative_path = str(file_path.relative_to(video_path))
+            relative_path = str(file_path.relative_to(video_path)).replace('\\', '/')
+            subfolder = str(Path(relative_path).parent).replace('\\', '/')
+            if subfolder == '.':
+                subfolder = ''
+            category_id = category.get('id') if isinstance(category, dict) else ''
+            category_name = category.get('name') if isinstance(category, dict) else ''
+            video_key = generate_video_key(category_id or 'default', relative_path)
             videos.append({
-                'id': generate_video_id(relative_path),
+                'id': generate_video_id(f"{category_id}:{relative_path}"),
                 'name': file_path.name,
                 'size': stat.st_size,
                 'size_formatted': format_file_size(stat.st_size),
@@ -69,7 +81,11 @@ def scan_video_files(video_folder, recursive=False):
                 'mtime_formatted': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
                 'path': str(file_path),
                 'url': f"/api/videos/{file_path.name}",
-                'relative_path': relative_path
+                'relative_path': relative_path,
+                'subfolder': subfolder,
+                'category_id': category_id,
+                'category_name': category_name,
+                'video_key': video_key
             })
     
     print(f"Scanned {len(videos)} videos from {video_folder}")

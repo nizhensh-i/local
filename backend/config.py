@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import platform
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -41,8 +42,63 @@ def get_default_video_folder():
         else:
             return str(videos)
 
+def _stable_category_id(name, folder):
+    base = f"{name or ''}:{folder or ''}"
+    return f"cat_{hashlib.md5(base.encode('utf-8')).hexdigest()[:10]}"
+
+
+def _normalize_categories(data):
+    categories = []
+    seen_ids = set()
+    raw_categories = data.get('categories') if isinstance(data, dict) else None
+
+    if isinstance(raw_categories, list):
+        for item in raw_categories:
+            if not isinstance(item, dict):
+                continue
+            folder = str(item.get('folder') or item.get('path') or '').strip()
+            if not folder:
+                continue
+
+            name = str(item.get('name') or '').strip() or Path(folder).name or '未命名分类'
+            category_id = str(item.get('id') or '').strip() or _stable_category_id(name, folder)
+            enabled = item.get('enabled', True) is not False
+
+            if category_id in seen_ids:
+                category_id = _stable_category_id(f"{name}-{len(categories)}", folder)
+
+            seen_ids.add(category_id)
+            categories.append({
+                'id': category_id,
+                'name': name,
+                'folder': folder,
+                'enabled': enabled
+            })
+
+    if not categories and isinstance(data, dict):
+        folder = str(data.get('video_folder') or '').strip()
+        if folder:
+            categories.append({
+                'id': _stable_category_id('默认分类', folder),
+                'name': '默认分类',
+                'folder': folder,
+                'enabled': True
+            })
+
+    active_category_id = str(data.get('active_category_id') or '').strip() if isinstance(data, dict) else ''
+    enabled_categories = [item for item in categories if item['enabled']]
+    valid_active = next((item['id'] for item in enabled_categories if item['id'] == active_category_id), '')
+    if not valid_active and enabled_categories:
+        valid_active = enabled_categories[0]['id']
+
+    return {
+        'categories': categories,
+        'active_category_id': valid_active
+    }
+
+
 def _load_video_folder_from_config():
-    """Load video folder configuration from JSON file"""
+    """Load category configuration from JSON file."""
     config_path = os.getenv('LOCAL_V_CONFIG_PATH')
     if not config_path:
         print(f"LOCAL_V_CONFIG_PATH environment variable not set")
@@ -55,20 +111,11 @@ def _load_video_folder_from_config():
     try:
         with open(config_path, 'r', encoding='utf-8') as file:
             data = json.load(file)
-        folder = data.get('video_folder')
-        if folder:
-            print(f"Found video_folder in config: '{folder}'")
-            # Check if folder exists and is a directory
-            folder_path = Path(folder)
-            if folder_path.exists() and folder_path.is_dir():
-                print(f"Loaded video folder from config: '{folder}'")
-                return folder
-            else:
-                print(f"Configured folder does not exist or is not a directory: '{folder}'")
-                print(f"  - Path exists: {folder_path.exists()}")
-                print(f"  - Is directory: {folder_path.is_dir()}")
-        else:
-            print(f"No video_folder key in config: {config_path}")
+        normalized = _normalize_categories(data)
+        if normalized['categories']:
+            print(f"Loaded {len(normalized['categories'])} categories from config")
+            return normalized
+        print(f"No usable category config in: {config_path}")
     except json.JSONDecodeError as e:
         print(f"JSON decode error in {config_path}: {e}")
         print(f"  File content might be corrupted")
@@ -127,37 +174,78 @@ def get_config_path():
     return None
 
 
-# 视频文件夹路径（默认路径）
 VIDEO_FOLDER_DEFAULT = get_default_video_folder()
 
-def reload_video_folder():
-    """Reload video folder configuration"""
-    global VIDEO_FOLDER
+
+def _build_default_config():
+    default_folder = VIDEO_FOLDER_DEFAULT
+    category = {
+        'id': _stable_category_id('默认分类', default_folder),
+        'name': '默认分类',
+        'folder': default_folder,
+        'enabled': True
+    }
+    return {
+        'categories': [category],
+        'active_category_id': category['id']
+    }
+
+
+def reload_video_config():
+    """Reload category configuration and validate folders."""
+    global VIDEO_CONFIG, VIDEO_FOLDER, VIDEO_CATEGORIES, ACTIVE_CATEGORY_ID
+
     configured = _load_video_folder_from_config()
-    
-    if configured:
-        VIDEO_FOLDER = configured
-        print(f"Using configured video folder: {VIDEO_FOLDER}")
-    else:
-        VIDEO_FOLDER = VIDEO_FOLDER_DEFAULT
-        print(f"Using default video folder: {VIDEO_FOLDER}")
+    VIDEO_CONFIG = configured or _build_default_config()
 
-    # Ensure the video folder exists
-    folder_path = Path(VIDEO_FOLDER)
-    if not folder_path.exists():
-        print(f"Warning: Video folder does not exist: {VIDEO_FOLDER}")
-        try:
-            folder_path.mkdir(parents=True, exist_ok=True)
-            print(f"Created video folder: {VIDEO_FOLDER}")
-        except Exception as e:
-            print(f"Failed to create video folder: {e}")
-    elif not folder_path.is_dir():
-        print(f"Warning: Video folder path is not a directory: {VIDEO_FOLDER}")
+    valid_categories = []
+    for item in VIDEO_CONFIG['categories']:
+        folder = item['folder']
+        folder_path = Path(folder)
+        if not folder_path.exists():
+            print(f"Warning: category folder does not exist: {folder}")
+            try:
+                folder_path.mkdir(parents=True, exist_ok=True)
+                print(f"Created category folder: {folder}")
+            except Exception as e:
+                print(f"Failed to create category folder {folder}: {e}")
+        elif not folder_path.is_dir():
+            print(f"Warning: category folder path is not a directory: {folder}")
 
+        valid_categories.append({
+            'id': item['id'],
+            'name': item['name'],
+            'folder': folder,
+            'enabled': item.get('enabled', True) is not False
+        })
+
+    VIDEO_CATEGORIES = valid_categories
+    ACTIVE_CATEGORY_ID = VIDEO_CONFIG.get('active_category_id') or (
+        VIDEO_CATEGORIES[0]['id'] if VIDEO_CATEGORIES else ''
+    )
+    VIDEO_FOLDER = next(
+        (item['folder'] for item in VIDEO_CATEGORIES if item['id'] == ACTIVE_CATEGORY_ID),
+        VIDEO_FOLDER_DEFAULT
+    )
+
+    print(f"Loaded {len(VIDEO_CATEGORIES)} categories, active={ACTIVE_CATEGORY_ID or 'none'}")
+    return {
+        'categories': VIDEO_CATEGORIES,
+        'active_category_id': ACTIVE_CATEGORY_ID
+    }
+
+
+def reload_video_folder():
+    """Backward-compatible wrapper for legacy callers."""
+    reload_video_config()
     return VIDEO_FOLDER
 
 
-VIDEO_FOLDER = reload_video_folder()
+VIDEO_CONFIG = {}
+VIDEO_CATEGORIES = []
+ACTIVE_CATEGORY_ID = ''
+VIDEO_FOLDER = VIDEO_FOLDER_DEFAULT
+reload_video_config()
 
 # 支持的视频格式
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.mkv', '.webm', '.avi', '.flv'}

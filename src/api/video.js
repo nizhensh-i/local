@@ -74,26 +74,51 @@ export const videoApi = {
     return api.get('/videos', { params })
   },
 
-  /**
-   * 获取视频流URL
-   * @param {string} filename - 视频文件名
-   * @returns {string}
-   */
-  getVideoStreamUrl(filename) {
-    return `${API_BASE_URL}/videos/${encodeURIComponent(filename)}`
+  getCategories() {
+    return api.get('/categories')
   },
 
-  getVideoPosterUrl(filename) {
-    return `${API_BASE_URL}/videos/${encodeURIComponent(filename)}/poster`
+  buildVideoQuery(video = {}) {
+    const params = new URLSearchParams()
+    if (video.video_key) {
+      params.set('video_key', video.video_key)
+    }
+    if (video.category_id) {
+      params.set('category_id', video.category_id)
+    }
+    if (video.relative_path) {
+      params.set('relative_path', video.relative_path)
+    }
+    const query = params.toString()
+    return query ? `?${query}` : ''
+  },
+
+  /**
+   * 获取视频流URL
+   * @param {string|Object} target - 视频文件名或视频对象
+   * @returns {string}
+   */
+  getVideoStreamUrl(target) {
+    const filename = typeof target === 'string' ? target : target?.name
+    const query = typeof target === 'string' ? '' : this.buildVideoQuery(target)
+    return `${API_BASE_URL}/videos/${encodeURIComponent(filename || '')}${query}`
+  },
+
+  getVideoPosterUrl(target) {
+    const filename = typeof target === 'string' ? target : target?.name
+    const query = typeof target === 'string' ? '' : this.buildVideoQuery(target)
+    return `${API_BASE_URL}/videos/${encodeURIComponent(filename || '')}/poster${query}`
   },
 
   /**
    * 获取视频元信息（详情页使用）
-   * @param {string} filename - 视频文件名
+   * @param {string|Object} target - 视频文件名或视频对象
    * @returns {Promise<Object>}
    */
-  getVideoMeta(filename) {
-    return api.get(`/videos/${encodeURIComponent(filename)}/meta`)
+  getVideoMeta(target) {
+    const filename = typeof target === 'string' ? target : target?.name
+    const query = typeof target === 'string' ? '' : this.buildVideoQuery(target)
+    return api.get(`/videos/${encodeURIComponent(filename || '')}/meta${query}`)
   },
 
   /**

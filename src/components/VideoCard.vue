@@ -41,7 +41,7 @@ export default {
 
   computed: {
     posterSrc() {
-      return videoApi.getVideoPosterUrl(this.video.name)
+      return videoApi.getVideoPosterUrl(this.video)
     }
   },
 
@@ -57,7 +57,12 @@ export default {
       this.$router.push({
         name: 'videoDetail',
         params: { filename: this.video.name },
-        query: { id: this.video.id }
+        query: {
+          id: this.video.id,
+          video_key: this.video.video_key,
+          category_id: this.video.category_id,
+          relative_path: this.video.relative_path
+        }
       })
     }
   }

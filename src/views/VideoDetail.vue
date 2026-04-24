@@ -122,6 +122,18 @@
                 <span class="meta-label">修改时间</span>
                 <span class="meta-value">{{ modifyTime || '-' }}</span>
               </div>
+
+              <div class="meta-item">
+                <el-icon><Document /></el-icon>
+                <span class="meta-label">分类</span>
+                <span class="meta-value">{{ categoryName || '-' }}</span>
+              </div>
+
+              <div class="meta-item">
+                <el-icon><Document /></el-icon>
+                <span class="meta-label">子文件夹</span>
+                <span class="meta-value">{{ subfolderLabel }}</span>
+              </div>
             </div>
           </el-card>
         </aside>
@@ -160,6 +172,7 @@ export default {
       videoPoster: DEFAULT_POSTER,
       fileSize: '',
       modifyTime: '',
+      categoryName: '',
       error: null,
       videoInfo: null,
       videoCheckResult: null,
@@ -197,6 +210,17 @@ export default {
       suggestions.push('检查视频文件是否存在')
       
       return suggestions
+    },
+    videoTarget() {
+      return {
+        name: this.filename,
+        video_key: this.$route.query.video_key || '',
+        category_id: this.$route.query.category_id || '',
+        relative_path: this.$route.query.relative_path || ''
+      }
+    },
+    subfolderLabel() {
+      return this.videoInfo?.subfolder || '根目录'
     }
   },
   
@@ -247,23 +271,25 @@ export default {
       this.videoCheckResult = null
       this.videoSrc = ''
       this.videoPoster = DEFAULT_POSTER
+      this.categoryName = ''
       this.isPlayerMounted = false
       this.isPlayerReady = false
 
       try {
         // 精确获取目标视频元信息，避免分页导致的漏查
-        const response = await videoApi.getVideoMeta(this.filename)
+        const response = await videoApi.getVideoMeta(this.videoTarget)
         
         if (response.data.success) {
           const video = response.data.data
           this.videoInfo = video
-          const streamUrl = videoApi.getVideoStreamUrl(this.filename)
-          const posterUrl = videoApi.getVideoPosterUrl(this.filename)
+          const streamUrl = videoApi.getVideoStreamUrl(video)
+          const posterUrl = videoApi.getVideoPosterUrl(video)
           this.videoPoster = await this.resolvePosterUrl(posterUrl)
           this.videoSrc = await resolvePlaybackSource(video, streamUrl)
           this.isPlayerMounted = true
           this.fileSize = video.size_formatted
           this.modifyTime = video.mtime_formatted
+          this.categoryName = video.category_name || '-'
         } else {
           throw new Error(response.data.error || '获取视频信息失败')
         }
@@ -329,7 +355,7 @@ export default {
     async checkVideoFile() {
       this.isCheckingVideo = true
       try {
-        const response = await fetch(`${videoApi.getVideoStreamUrl(this.filename)}/check`)
+        const response = await fetch(`${videoApi.getVideoStreamUrl(this.videoInfo || this.videoTarget)}/check`)
         const result = await response.json()
         
         if (result.success) {

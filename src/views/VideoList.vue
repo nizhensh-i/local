@@ -3,16 +3,74 @@
     <PageHeader
       :total-videos="pagination.total"
       :show-folder-button="isTauri"
+      folder-button-text="新增分类"
       @search="handleSearch"
       @sort="handleSort"
       @page-size-change="handlePageSizeChange"
-      @select-folder="handleSelectFolder"
+      @select-folder="openCategoryDialog"
       @show-address="handleShowAddress"
       @show-settings="handleShowSettings"
     />
-    
+
     <div class="content-container">
-      <!-- 加载状态 -->
+      <section class="category-panel">
+        <div class="category-panel-header">
+          <div>
+            <h2 class="panel-title">资源分类</h2>
+            <p class="panel-subtitle">每个分类绑定一个文件夹，默认递归读取其子文件夹内容。</p>
+          </div>
+          <el-button type="primary" plain @click="openCategoryDialog">
+            新增分类
+          </el-button>
+        </div>
+
+        <el-empty v-if="!loading && categories.length === 0" description="还没有分类，先新增一个分类并选择文件夹。">
+          <el-button type="primary" @click="openCategoryDialog">
+            新增分类
+          </el-button>
+        </el-empty>
+
+        <template v-else>
+          <el-tabs
+            v-model="activeCategoryId"
+            type="card"
+            class="category-tabs"
+            @tab-change="handleCategoryChange"
+            @tab-remove="removeCategory"
+          >
+            <el-tab-pane
+              v-for="category in categories"
+              :key="category.id"
+              :name="category.id"
+              :label="category.name"
+              :closable="categories.length > 1"
+            />
+          </el-tabs>
+
+          <div v-if="activeCategoryId" class="category-toolbar">
+            <el-select
+              v-model="activeSubfolder"
+              class="subfolder-select"
+              placeholder="筛选子文件夹"
+              @change="handleSubfolderChange"
+            >
+              <el-option label="全部子文件夹" value="" />
+              <el-option label="根目录" value="root" />
+              <el-option
+                v-for="folder in subfolderOptions"
+                :key="folder"
+                :label="folder"
+                :value="folder"
+              />
+            </el-select>
+
+            <el-tag v-if="activeCategoryName" type="info" effect="plain">
+              当前分类：{{ activeCategoryName }}
+            </el-tag>
+          </div>
+        </template>
+      </section>
+
       <div v-if="loading" class="loading-container">
         <div class="loading-surface">
           <el-skeleton :rows="6" animated />
@@ -21,9 +79,8 @@
           <el-skeleton :rows="6" animated />
         </div>
       </div>
-      
-      <!-- 空状态 -->
-      <div v-else-if="videos.length === 0" class="empty-container">
+
+      <div v-else-if="categories.length > 0 && videos.length === 0" class="empty-container">
         <el-empty :description="emptyText">
           <template #default>
             <el-button
@@ -37,20 +94,18 @@
           </template>
         </el-empty>
       </div>
-      
-      <!-- 视频网格 -->
-      <div v-else class="video-grid">
+
+      <div v-else-if="videos.length > 0" class="video-grid">
         <transition-group name="video-list" tag="div" class="grid-container">
           <div
             v-for="video in videos"
-            :key="video.id"
+            :key="video.video_key || video.id"
             class="video-grid-item"
           >
             <VideoCard :video="video" />
           </div>
         </transition-group>
-        
-        <!-- 分页 -->
+
         <div class="pagination-container">
           <el-pagination
             v-model:current-page="currentPage"
@@ -65,8 +120,7 @@
           />
         </div>
       </div>
-      
-      <!-- 本地错误提示（非全局） -->
+
       <el-alert
         v-if="error"
         :title="listErrorTitle"
@@ -77,6 +131,44 @@
         class="error-alert"
       />
     </div>
+
+    <el-dialog
+      v-model="categoryDialogVisible"
+      title="新增分类"
+      width="480px"
+      :close-on-click-modal="false"
+    >
+      <el-form label-position="top" @submit.prevent="submitCategory">
+        <el-form-item label="分类名称">
+          <el-input
+            v-model="categoryForm.name"
+            maxlength="20"
+            show-word-limit
+            placeholder="例如：欧美、国内、短剧"
+          />
+        </el-form-item>
+
+        <el-form-item label="绑定文件夹">
+          <div class="folder-picker">
+            <el-input
+              :model-value="categoryForm.folder"
+              readonly
+              placeholder="请选择一个本地文件夹"
+            />
+            <el-button @click="pickCategoryFolder">
+              选择文件夹
+            </el-button>
+          </div>
+        </el-form-item>
+
+        <div class="dialog-actions">
+          <el-button @click="categoryDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="categorySaving" @click="submitCategory">
+            保存分类
+          </el-button>
+        </div>
+      </el-form>
+    </el-dialog>
 
     <el-dialog
       v-model="addressDialogVisible"
@@ -121,7 +213,7 @@
     <el-dialog
       v-model="settingsDialogVisible"
       title="设置"
-      width="400px"
+      width="420px"
       :lock-scroll="false"
       :close-on-click-modal="false"
       class="settings-dialog"
@@ -167,11 +259,11 @@
         </el-form>
       </div>
     </el-dialog>
-
   </div>
 </template>
 
 <script>
+import { ElMessageBox } from 'element-plus'
 import PageHeader from '../components/PageHeader.vue'
 import VideoCard from '../components/VideoCard.vue'
 import { videoApi } from '../api/video'
@@ -179,19 +271,27 @@ import { updatePassword } from '../utils/auth'
 import { AUTH_KEY, REMEMBER_LOGIN_KEY } from '../utils/auth-keys'
 import { isTauriRuntime } from '../utils/tauri'
 
+const CONFIG_FILE_NAME = 'video_folder.json'
+const TEMP_CONFIG_FILE_NAME = 'video_folder.json.tmp'
+
 export default {
   name: 'VideoList',
-  
+
   components: {
     PageHeader,
     VideoCard
   },
-  
+
   data() {
     return {
       videos: [],
+      categories: [],
+      subfolderOptions: [],
+      activeCategoryId: '',
+      activeSubfolder: '',
       loading: false,
       refreshing: false,
+      categorySaving: false,
       error: null,
       toastTimestamps: {},
       searchKeyword: '',
@@ -212,23 +312,37 @@ export default {
       frontendUrls: [],
       settingsDialogVisible: false,
       passwordSaving: false,
+      categoryDialogVisible: false,
       passwordForm: {
         currentPassword: '',
         nextPassword: '',
         confirmPassword: ''
+      },
+      categoryForm: {
+        name: '',
+        folder: ''
       }
     }
   },
-  
+
   computed: {
     emptyText() {
+      if (!this.activeCategoryId) {
+        return '请先新增分类并选择文件夹。'
+      }
       if (!this.folderAvailable) {
-        return '当前视频目录不可用，请重新选择文件夹。'
+        return '当前分类绑定的文件夹不可用，请检查路径或重新设置分类。'
       }
       if (this.searchKeyword) {
         return `未找到与“${this.searchKeyword}”相关的视频，请尝试更短关键词。`
       }
-      return '当前目录暂无可播放视频'
+      if (this.activeSubfolder === 'root') {
+        return '当前分类根目录暂无可播放视频'
+      }
+      if (this.activeSubfolder) {
+        return `当前子文件夹“${this.activeSubfolder}”暂无可播放视频`
+      }
+      return '当前分类暂无可播放视频'
     },
     listErrorTitle() {
       return `列表加载失败：${this.error}`
@@ -238,9 +352,12 @@ export default {
     },
     addressDialogWidth() {
       return this.isMobile ? '92vw' : '560px'
+    },
+    activeCategoryName() {
+      return this.categories.find((item) => item.id === this.activeCategoryId)?.name || ''
     }
   },
-  
+
   mounted() {
     window.addEventListener('resize', this.handleResize)
     this.fetchVideos()
@@ -249,7 +366,7 @@ export default {
   beforeUnmount() {
     window.removeEventListener('resize', this.handleResize)
   },
-  
+
   methods: {
     getErrorMessage(err) {
       if (err && typeof err === 'object') {
@@ -282,36 +399,55 @@ export default {
     handleResize() {
       this.isMobile = window.innerWidth <= 768
     },
+
     async fetchVideos() {
       this.loading = true
       this.error = null
-      
+
       try {
         const params = {
           page: this.currentPage,
           page_size: this.pageSize,
           sort: this.sortBy
         }
-        
+
         if (this.searchKeyword) {
           params.keyword = this.searchKeyword
         }
-        
+        if (this.activeCategoryId) {
+          params.category_id = this.activeCategoryId
+        }
+        if (this.activeSubfolder) {
+          params.subfolder = this.activeSubfolder
+        }
+
         const response = await videoApi.getVideos(params)
-        
-        if (response.data.success) {
-          const videos = response.data.data?.videos || []
-          this.folderAvailable = response.data.data?.folder_exists !== false
-          const pagination = response.data.data?.pagination || {
-            total: 0,
-            page: 1,
-            page_size: this.pageSize,
-            total_pages: 1
-          }
-          this.videos = videos
-          this.pagination = pagination
-        } else {
+
+        if (!response.data.success) {
           throw new Error(response.data.error || '获取视频列表失败')
+        }
+
+        const payload = response.data.data || {}
+        this.videos = payload.videos || []
+        this.categories = payload.categories || []
+        this.subfolderOptions = payload.subfolders || []
+        this.pagination = payload.pagination || {
+          total: 0,
+          page: 1,
+          page_size: this.pageSize,
+          total_pages: 1
+        }
+
+        const nextActiveCategoryId = payload.active_category_id || this.categories[0]?.id || ''
+        if (nextActiveCategoryId !== this.activeCategoryId) {
+          this.activeCategoryId = nextActiveCategoryId
+        }
+
+        const folderExistsMap = payload.folder_exists_map || {}
+        this.folderAvailable = this.activeCategoryId ? folderExistsMap[this.activeCategoryId] !== false : true
+
+        if (this.activeSubfolder && this.activeSubfolder !== 'root' && !this.subfolderOptions.includes(this.activeSubfolder)) {
+          this.activeSubfolder = ''
         }
       } catch (err) {
         const message = this.getErrorMessage(err)
@@ -322,40 +458,51 @@ export default {
         this.loading = false
       }
     },
-    
+
     handleSearch(keyword) {
       this.searchKeyword = keyword
       this.currentPage = 1
       this.fetchVideos()
     },
-    
+
     handleSort(sort) {
       this.sortBy = sort
       this.fetchVideos()
     },
-    
+
     handlePageSizeChange(pageSize) {
       this.pageSize = pageSize
       this.currentPage = 1
       this.fetchVideos()
     },
-    
+
     handlePageChange(page) {
       this.currentPage = page
       this.fetchVideos()
-      
-      // 滚动到顶部
+
       window.scrollTo({
         top: 0,
         behavior: 'smooth'
       })
     },
-    
+
+    handleCategoryChange(categoryId) {
+      this.activeCategoryId = categoryId
+      this.activeSubfolder = ''
+      this.currentPage = 1
+      this.fetchVideos()
+    },
+
+    handleSubfolderChange() {
+      this.currentPage = 1
+      this.fetchVideos()
+    },
+
     async handleRefresh() {
       this.refreshing = true
       try {
         await videoApi.refreshCache()
-        this.fetchVideos()
+        await this.fetchVideos()
         this.$message.success('列表已更新')
       } catch (err) {
         const message = this.getErrorMessage(err)
@@ -365,85 +512,218 @@ export default {
       }
     },
 
-    async handleSelectFolder() {
+    openCategoryDialog() {
       if (!this.isTauri) {
-        // use a toast so the message appears at the top of the window
+        this.$message.warning('当前运行环境不支持选择本地文件夹')
+        return
+      }
+      this.categoryForm = {
+        name: '',
+        folder: ''
+      }
+      this.categoryDialogVisible = true
+    },
+
+    async pickCategoryFolder() {
+      if (!this.isTauri) {
         this.$message.warning('当前运行环境不支持选择本地文件夹')
         return
       }
 
       try {
         const { open } = await import('@tauri-apps/plugin-dialog')
-        const { writeTextFile, exists, mkdir, remove, rename } = await import('@tauri-apps/plugin-fs')
-        const { BaseDirectory, appDataDir } = await import('@tauri-apps/api/path')
-
         const selected = await open({
           directory: true,
           multiple: false,
-          title: '选择视频文件夹'
+          title: '选择分类文件夹'
         })
 
-        if (!selected) {
-          return
+        if (!selected) return
+        this.categoryForm.folder = Array.isArray(selected) ? selected[0] : selected
+      } catch (err) {
+        const message = this.getErrorMessage(err)
+        this.toastOnce('pickFolder', 'error', '选择文件夹失败：' + message)
+      }
+    },
+
+    async readConfigData() {
+      const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
+      const { BaseDirectory } = await import('@tauri-apps/api/path')
+
+      const hasConfig = await exists(CONFIG_FILE_NAME, { baseDir: BaseDirectory.AppData })
+      if (!hasConfig) {
+        return {
+          categories: this.categories.map((item) => ({
+            id: item.id,
+            name: item.name,
+            folder: item.folder,
+            enabled: item.enabled !== false
+          })),
+          active_category_id: this.activeCategoryId || this.categories[0]?.id || ''
+        }
+      }
+
+      const raw = await readTextFile(CONFIG_FILE_NAME, { baseDir: BaseDirectory.AppData })
+      const parsed = JSON.parse(raw)
+
+      if (Array.isArray(parsed.categories)) {
+        return {
+          categories: parsed.categories.map((item) => ({
+            id: item.id,
+            name: item.name,
+            folder: item.folder || item.path,
+            enabled: item.enabled !== false
+          })),
+          active_category_id: parsed.active_category_id || ''
+        }
+      }
+
+      if (parsed.video_folder) {
+        const migratedId = `cat_${Date.now()}`
+        return {
+          categories: [{
+            id: migratedId,
+            name: '默认分类',
+            folder: parsed.video_folder,
+            enabled: true
+          }],
+          active_category_id: migratedId
+        }
+      }
+
+      return {
+        categories: [],
+        active_category_id: ''
+      }
+    },
+
+    async writeConfigData(data) {
+      const { writeTextFile, exists, mkdir, remove, rename } = await import('@tauri-apps/plugin-fs')
+      const { BaseDirectory, appDataDir } = await import('@tauri-apps/api/path')
+
+      const appDataPath = await appDataDir()
+      try {
+        await mkdir(appDataPath, { recursive: true })
+      } catch (_) {
+        // no-op
+      }
+
+      const payload = JSON.stringify(data, null, 2)
+      if (await exists(TEMP_CONFIG_FILE_NAME, { baseDir: BaseDirectory.AppData })) {
+        await remove(TEMP_CONFIG_FILE_NAME, { baseDir: BaseDirectory.AppData })
+      }
+      await writeTextFile(TEMP_CONFIG_FILE_NAME, payload, {
+        baseDir: BaseDirectory.AppData
+      })
+      if (await exists(CONFIG_FILE_NAME, { baseDir: BaseDirectory.AppData })) {
+        await remove(CONFIG_FILE_NAME, { baseDir: BaseDirectory.AppData })
+      }
+      await rename(TEMP_CONFIG_FILE_NAME, CONFIG_FILE_NAME, {
+        oldPathBaseDir: BaseDirectory.AppData,
+        newPathBaseDir: BaseDirectory.AppData
+      })
+    },
+
+    async submitCategory() {
+      const name = this.categoryForm.name.trim()
+      const folder = this.categoryForm.folder.trim()
+
+      if (!name) {
+        this.$message.error('请输入分类名称')
+        return
+      }
+      if (!folder) {
+        this.$message.error('请选择分类文件夹')
+        return
+      }
+      if (this.categories.some((item) => item.name === name)) {
+        this.$message.error('分类名称已存在，请更换一个名称')
+        return
+      }
+
+      this.categorySaving = true
+      try {
+        const { exists } = await import('@tauri-apps/plugin-fs')
+        const folderExists = await exists(folder)
+        if (!folderExists) {
+          throw new Error('选中的目录不存在')
         }
 
-        const folderPath = Array.isArray(selected) ? selected[0] : selected
-        
-        // Verify the directory exists
-        try {
-          const dirExists = await exists(folderPath)
-          if (!dirExists) {
-            throw new Error('选中的目录不存在')
-          }
-        } catch (verifyErr) {
-          console.warn('Directory verification skipped:', verifyErr)
+        const current = await this.readConfigData()
+        const newCategoryId = `cat_${Date.now()}`
+        const nextConfig = {
+          categories: [
+            ...(current.categories || []),
+            {
+              id: newCategoryId,
+              name,
+              folder,
+              enabled: true
+            }
+          ],
+          active_category_id: newCategoryId
         }
-        
-        // Ensure AppData directory exists
-        const appDataPath = await appDataDir()
-        try {
-          await mkdir(appDataPath, { recursive: true })
-        } catch (mkdirErr) {
-          console.warn('AppData directory might already exist:', mkdirErr)
-        }
-        
-        const payload = JSON.stringify({ video_folder: folderPath }, null, 2)
-        const tempConfigName = 'video_folder.json.tmp'
-        if (await exists(tempConfigName, { baseDir: BaseDirectory.AppData })) {
-          await remove(tempConfigName, { baseDir: BaseDirectory.AppData })
-        }
-        await writeTextFile(tempConfigName, payload, {
-          baseDir: BaseDirectory.AppData
-        })
-        if (await exists('video_folder.json', { baseDir: BaseDirectory.AppData })) {
-          await remove('video_folder.json', { baseDir: BaseDirectory.AppData })
-        }
-        await rename(tempConfigName, 'video_folder.json', {
-          oldPathBaseDir: BaseDirectory.AppData,
-          newPathBaseDir: BaseDirectory.AppData
-        })
 
-        // Refresh cache and reload videos using server response instead of fixed delays
+        await this.writeConfigData(nextConfig)
         const refreshResponse = await videoApi.refreshCache()
-        if (refreshResponse?.data?.success) {
-          await this.fetchVideos()
-          if (this.videos.length === 0) {
-            this.$message.info('目录更新成功，但未找到可播放视频')
-          } else {
-            this.$message.success(`目录更新成功，已加载 ${this.videos.length} 个视频`)
-          }
-        } else {
+        if (!refreshResponse?.data?.success) {
           throw new Error(refreshResponse?.data?.error || '刷新视频目录失败')
         }
-        
+
+        this.activeCategoryId = newCategoryId
+        this.activeSubfolder = ''
+        this.currentPage = 1
+        await this.fetchVideos()
+        this.categoryDialogVisible = false
+        this.$message.success(`分类“${name}”已创建`)
       } catch (err) {
-        console.error('handleSelectFolder failed:', err)
         const message = this.getErrorMessage(err)
-        // keep the detailed message in `error` so the alert can render it and also
-        // show a global toast; the toast appears at the top and will auto‑dismiss.
         this.error = message
-        this.$message.error('目录更新失败：' + message)
-        this.toastOnce('selectFolder', 'error', '目录更新失败：' + message)
+        this.toastOnce('saveCategory', 'error', '分类创建失败：' + message)
+      } finally {
+        this.categorySaving = false
+      }
+    },
+
+    async removeCategory(categoryId) {
+      const target = this.categories.find((item) => item.id === categoryId)
+      if (!target) return
+
+      try {
+        await ElMessageBox.confirm(
+          `确认删除分类“${target.name}”吗？不会删除本地文件，只会移除分类映射。`,
+          '删除分类',
+          {
+            type: 'warning',
+            confirmButtonText: '删除',
+            cancelButtonText: '取消'
+          }
+        )
+      } catch {
+        return
+      }
+
+      try {
+        const current = await this.readConfigData()
+        const nextCategories = (current.categories || []).filter((item) => item.id !== categoryId)
+        const nextActiveCategoryId = this.activeCategoryId === categoryId
+          ? (nextCategories[0]?.id || '')
+          : (current.active_category_id || nextCategories[0]?.id || '')
+
+        await this.writeConfigData({
+          categories: nextCategories,
+          active_category_id: nextActiveCategoryId
+        })
+
+        await videoApi.refreshCache()
+        this.activeCategoryId = nextActiveCategoryId
+        this.activeSubfolder = ''
+        this.currentPage = 1
+        await this.fetchVideos()
+        this.$message.success(`分类“${target.name}”已删除`)
+      } catch (err) {
+        const message = this.getErrorMessage(err)
+        this.toastOnce('removeCategory', 'error', '删除分类失败：' + message)
       }
     },
 
@@ -524,16 +804,12 @@ export default {
 
       this.passwordSaving = true
       try {
-        await updatePassword(trimmedCurrentPassword, trimmedNextPassword)
-        sessionStorage.removeItem(AUTH_KEY)
+        updatePassword(trimmedCurrentPassword, trimmedNextPassword)
+        sessionStorage.setItem(AUTH_KEY, '1')
         localStorage.removeItem(REMEMBER_LOGIN_KEY)
+        this.$message.success('密码修改成功')
         this.settingsDialogVisible = false
         this.resetPasswordForm()
-        this.$message.success('密码已修改，请重新登录')
-        this.$router.replace({
-          name: 'login',
-          query: { redirect: this.$route.fullPath }
-        })
       } catch (err) {
         this.$message.error(this.getErrorMessage(err))
       } finally {
@@ -548,43 +824,82 @@ export default {
 .video-list-page {
   min-height: 100vh;
   background: var(--bg-page);
-  overflow-x: hidden;
 }
 
 .content-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 14px 20px 24px;
+  padding: 0 20px 24px;
 }
 
-.loading-container {
-  padding: 20px 4px;
-  display: grid;
-  gap: 12px;
-}
-
-.loading-surface {
+.category-panel {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  padding: 14px;
+  padding: 16px;
+  margin-bottom: 18px;
 }
 
-.empty-container {
-  padding: 48px 20px;
+.category-panel-header {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
+.panel-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.panel-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.category-tabs :deep(.el-tabs__header) {
+  margin-bottom: 10px;
+}
+
+.category-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+.category-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.subfolder-select {
+  width: 240px;
+  max-width: 100%;
+}
+
+.loading-container {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.loading-surface,
+.empty-container,
 .video-grid {
-  margin-top: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 16px;
 }
 
 .grid-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 14px;
-  margin-bottom: 26px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
 }
 
 .video-grid-item {
@@ -593,26 +908,42 @@ export default {
 
 .pagination-container {
   display: flex;
-  justify-content: center;
-  margin-top: 14px;
-  overflow-x: visible;
+  justify-content: flex-end;
+  margin-top: 18px;
 }
 
 .error-alert {
-  margin-bottom: 20px;
-  border-radius: var(--radius-md);
+  margin-top: 16px;
 }
 
-.address-tip {
-  margin-bottom: 12px;
+.folder-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.dialog-actions,
+.settings-submit {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.settings-section-header h3 {
+  margin: 0;
   color: var(--text-primary);
 }
 
-.address-note {
-  margin-top: 14px;
+.settings-section-header p {
+  margin: 6px 0 16px;
   color: var(--text-secondary);
   font-size: 13px;
-  overflow-wrap: anywhere;
+}
+
+.address-tip,
+.address-note {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .url-row {
@@ -620,75 +951,44 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid #b7e1c1;
-  border-radius: 10px;
-  background: #f0fdf4;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-surface);
 }
 
 .url-row-main {
-  min-width: 0;
-  flex: 1;
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.url-row-icon {
-  flex: 0 0 auto;
-  font-size: 16px;
-  color: #15803d;
+  min-width: 0;
 }
 
 .url-row-text {
   min-width: 0;
-  color: #166534;
-  font-size: 14px;
-  line-height: 1.4;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.url-copy-button {
-  flex: 0 0 auto;
-  border-radius: 8px;
+.video-list-enter-active,
+.video-list-leave-active {
+  transition: all 0.25s ease;
 }
 
-.settings-section {
-  display: grid;
-  gap: 16px;
+.video-list-enter-from,
+.video-list-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
-.settings-section-header h3 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--text-primary);
-}
-
-.settings-section-header p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.settings-submit {
-  display: flex;
-  justify-content: flex-end;
-}
-
-:deep(.address-dialog) {
-  max-width: calc(100vw - 24px);
-}
-
-@media (max-width: 1439px) {
-  .grid-container {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  }
+.video-list-leave-active {
+  position: absolute;
 }
 
 @media (max-width: 1199px) {
   .grid-container {
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -697,54 +997,29 @@ export default {
     padding: 0 12px 16px;
   }
 
-  .url-row {
+  .category-panel-header {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .url-copy-button {
-    width: 100%;
-  }
-
-  .video-grid {
-    margin-top: 6px;
-  }
-
+  .loading-container,
   .grid-container {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin-bottom: 14px;
+  }
+
+  .folder-picker {
+    grid-template-columns: 1fr;
   }
 
   .pagination-container {
-    justify-content: flex-start;
-    overflow-x: auto;
-    padding-bottom: 2px;
+    justify-content: center;
   }
 }
 
-@media (max-width: 359px) {
+@media (max-width: 480px) {
+  .loading-container,
   .grid-container {
     grid-template-columns: 1fr;
   }
-}
-
-.video-list-enter-active,
-.video-list-leave-active {
-  transition: all var(--motion-base) ease;
-}
-
-.video-list-enter-from {
-  opacity: 0;
-  transform: translateY(16px);
-}
-
-.video-list-leave-to {
-  opacity: 0;
-  transform: scale(0.97);
-}
-
-.video-list-leave-active {
-  position: absolute;
 }
 </style>

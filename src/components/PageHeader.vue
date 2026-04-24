@@ -20,7 +20,7 @@
             @click="handleSelectFolder"
           >
             <el-icon><i-ep-FolderOpened /></el-icon>
-            选择文件夹
+            {{ folderButtonText }}
           </el-button>
 
           <el-button
@@ -180,6 +180,10 @@ export default {
     showFolderButton: {
       type: Boolean,
       default: false
+    },
+    folderButtonText: {
+      type: String,
+      default: '选择文件夹'
     }
   },
 
