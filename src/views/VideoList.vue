@@ -21,15 +21,26 @@
             type="card"
             class="category-tabs"
             @tab-change="handleCategoryChange"
-            @tab-remove="removeCategory"
           >
             <el-tab-pane
               v-for="category in categories"
               :key="category.id"
               :name="category.id"
-              :label="category.name"
-              :closable="Boolean(isTauri && categories.length > 1)"
-            />
+            >
+              <template #label>
+                <span class="category-tab-label">
+                  <span class="category-tab-name">{{ category.name }}</span>
+                  <el-button
+                    v-if="isTauri && categories.length > 1"
+                    text
+                    class="category-tab-close"
+                    @click.stop="removeCategory(category.id)"
+                  >
+                    <el-icon><i-ep-Close /></el-icon>
+                  </el-button>
+                </span>
+              </template>
+            </el-tab-pane>
           </el-tabs>
 
           <div v-if="activeCategoryId" class="category-toolbar-actions">
@@ -48,36 +59,22 @@
                 :value="folder"
               />
             </el-select>
-
-            <el-tag v-if="activeCategoryName" type="info" effect="plain" class="category-tag">
-              {{ activeCategoryName }}
-            </el-tag>
           </div>
         </div>
-
-        <el-button v-if="isTauri" type="primary" plain class="category-add-button" @click="openCategoryDialog">
-          <el-icon><i-ep-Plus /></el-icon>
-          新增分类
-        </el-button>
       </section>
 
       <div v-if="!loading && categories.length === 0" class="empty-container">
-        <div class="scene-empty-card">
-          <img src="/man.png" alt="" class="scene-empty-illustration" />
-          <div class="scene-empty-content">
-            <h3 class="scene-empty-title">还没有分类</h3>
-            <p class="scene-empty-text">先在宿主电脑上新建一个分类，并为它绑定本地视频文件夹。</p>
-          </div>
-          <div class="scene-empty-actions">
-            <el-button
-              v-if="isTauri"
-              type="primary"
-              @click="openCategoryDialog"
-            >
-              新增分类
-            </el-button>
-            <span v-else class="category-empty-note">当前设备仅支持浏览，新增分类请在宿主电脑上操作。</span>
-          </div>
+        <div class="text-empty-state">
+          <p class="text-empty-title">还没有分类</p>
+          <p class="text-empty-description">先在宿主电脑上新建一个分类，并为它绑定本地视频文件夹。</p>
+          <el-button
+            v-if="isTauri"
+            type="primary"
+            @click="openCategoryDialog"
+          >
+            新增分类
+          </el-button>
+          <p v-else class="category-empty-note">当前设备仅支持浏览，新增分类请在宿主电脑上操作。</p>
         </div>
       </div>
 
@@ -91,22 +88,17 @@
       </div>
 
       <div v-else-if="categories.length > 0 && videos.length === 0" class="empty-container">
-        <div class="scene-empty-card scene-empty-card--soft">
-          <img src="/man.png" alt="" class="scene-empty-illustration scene-empty-illustration--small" />
-          <div class="scene-empty-content">
-            <h3 class="scene-empty-title">这个分类暂时空空的</h3>
-            <p class="scene-empty-text">{{ emptyText }}</p>
-          </div>
-          <div class="scene-empty-actions">
-            <el-button
-              v-if="!searchKeyword"
-              type="primary"
-              @click="handleRefresh"
-              :loading="refreshing"
-            >
-              刷新列表
-            </el-button>
-          </div>
+        <div class="text-empty-state text-empty-state--compact">
+          <p class="text-empty-title">这个分类暂时空空的</p>
+          <p class="text-empty-description">{{ emptyText }}</p>
+          <el-button
+            v-if="!searchKeyword"
+            type="primary"
+            @click="handleRefresh"
+            :loading="refreshing"
+          >
+            刷新列表
+          </el-button>
         </div>
       </div>
 
@@ -367,9 +359,6 @@ export default {
     },
     addressDialogWidth() {
       return this.isMobile ? '92vw' : '560px'
-    },
-    activeCategoryName() {
-      return this.categories.find((item) => item.id === this.activeCategoryId)?.name || ''
     },
     canSubmitCategory() {
       return Boolean(this.categoryForm.name.trim() && this.categoryForm.folder.trim())
@@ -728,15 +717,20 @@ export default {
           ? (nextCategories[0]?.id || '')
           : (current.active_category_id || nextCategories[0]?.id || '')
 
+        if (nextCategories.length === (current.categories || []).length) {
+          throw new Error('未找到要删除的分类')
+        }
+
         await this.writeConfigData({
           categories: nextCategories,
           active_category_id: nextActiveCategoryId
         })
 
-        await videoApi.refreshCache()
+        this.categories = nextCategories
         this.activeCategoryId = nextActiveCategoryId
         this.activeSubfolder = ''
         this.currentPage = 1
+        await videoApi.refreshCache()
         await this.fetchVideos()
         this.$message.success(`分类“${target.name}”已删除`)
       } catch (err) {
@@ -854,20 +848,15 @@ export default {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  padding: 10px 12px;
+  padding: 8px 10px;
   margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .category-toolbar-main {
-  flex: 1;
-  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .category-tabs :deep(.el-tabs__header) {
@@ -883,36 +872,85 @@ export default {
   display: none;
 }
 
+.category-tabs :deep(.el-tabs__nav-wrap) {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.category-tabs :deep(.el-tabs__nav-wrap::-webkit-scrollbar) {
+  display: none;
+}
+
 .category-tabs :deep(.el-tabs__item) {
-  height: 34px;
-  line-height: 34px;
+  height: 32px;
+  line-height: 32px;
+  padding: 0 14px;
+}
+
+.category-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.category-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-tab-close {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
 }
 
 .category-toolbar-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
   flex-shrink: 0;
 }
 
 .subfolder-select {
-  width: 180px;
+  width: 170px;
   max-width: 100%;
-}
-
-.category-tag {
-  height: 32px;
-  line-height: 30px;
-}
-
-.category-add-button {
-  flex-shrink: 0;
 }
 
 .category-empty-note {
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.text-empty-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.text-empty-state--compact {
+  min-height: 180px;
+}
+
+.text-empty-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.text-empty-description {
+  margin: 0;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
 }
 
 .loading-container {
@@ -1020,57 +1058,6 @@ export default {
   position: absolute;
 }
 
-.scene-empty-card {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-  min-height: 260px;
-  padding: 12px 4px;
-}
-
-.scene-empty-card--soft {
-  min-height: 220px;
-}
-
-.scene-empty-illustration {
-  width: 152px;
-  height: 152px;
-  object-fit: contain;
-  flex-shrink: 0;
-  filter: drop-shadow(0 14px 24px rgba(37, 99, 235, 0.16));
-}
-
-.scene-empty-illustration--small {
-  width: 128px;
-  height: 128px;
-}
-
-.scene-empty-content {
-  max-width: 360px;
-}
-
-.scene-empty-title {
-  margin: 0 0 8px;
-  font-size: 24px;
-  line-height: 1.2;
-  color: var(--text-primary);
-}
-
-.scene-empty-text {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text-secondary);
-}
-
-.scene-empty-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
 @media (max-width: 1199px) {
   .grid-container {
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -1083,45 +1070,28 @@ export default {
   }
 
   .category-toolbar-bar {
-    align-items: stretch;
-    flex-direction: column;
+    padding: 8px;
+    margin-bottom: 10px;
   }
 
   .category-toolbar-main {
     width: 100%;
     flex-direction: column;
     align-items: stretch;
+    gap: 8px;
   }
 
   .category-toolbar-actions {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .subfolder-select {
     width: 100%;
   }
 
-  .category-add-button {
-    width: 100%;
-  }
-
   .folder-picker {
     grid-template-columns: 1fr;
-  }
-
-  .scene-empty-card {
-    flex-direction: column;
-    text-align: center;
-    gap: 16px;
-  }
-
-  .scene-empty-content {
-    max-width: 100%;
-  }
-
-  .scene-empty-actions {
-    justify-content: center;
   }
 
   .grid-container {
