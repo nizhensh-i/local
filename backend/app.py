@@ -40,7 +40,11 @@ CORS(app, resources={
     }
 })
 
-cached_index = None
+cached_index = {
+    'videos_by_category': {},
+    'by_key': {},
+    'folder_exists_map': {}
+}
 
 
 def _resolve_frontend_dist_dir():
@@ -146,33 +150,49 @@ def _get_lan_ipv4_addresses():
     return sorted(addresses)
 
 
-def get_videos_cache():
-    """获取视频缓存索引。"""
+def _get_category(category_id):
+    return next((item for item in _public_categories() if item['id'] == category_id), None)
+
+
+def _clear_videos_cache():
     global cached_index
-    if cached_index is not None:
-        return cached_index
-
-    categories = _public_categories()
-    all_videos = []
-    by_key = {}
-    videos_by_category = {}
-    folder_exists_map = {}
-
-    for category in categories:
-        folder_exists = os.path.isdir(category['folder'])
-        folder_exists_map[category['id']] = folder_exists
-        videos = scan_video_files(category['folder'], recursive=True, category=category) if folder_exists else []
-        videos_by_category[category['id']] = videos
-        all_videos.extend(videos)
-        for video in videos:
-            by_key[video['video_key']] = video
-
     cached_index = {
-        'videos': all_videos,
-        'videos_by_category': videos_by_category,
-        'by_key': by_key,
-        'folder_exists_map': folder_exists_map
+        'videos_by_category': {},
+        'by_key': {},
+        'folder_exists_map': {}
     }
+
+
+def _get_cached_video_count():
+    return sum(len(videos) for videos in cached_index['videos_by_category'].values())
+
+
+def _ensure_category_cache(category_id):
+    if not category_id:
+        return []
+
+    category = _get_category(category_id)
+    if not category:
+        cached_index['folder_exists_map'][category_id] = False
+        cached_index['videos_by_category'][category_id] = []
+        return []
+
+    if category_id in cached_index['videos_by_category']:
+        return cached_index['videos_by_category'][category_id]
+
+    folder_exists = os.path.isdir(category['folder'])
+    cached_index['folder_exists_map'][category_id] = folder_exists
+    videos = scan_video_files(category['folder'], recursive=True, category=category) if folder_exists else []
+    cached_index['videos_by_category'][category_id] = videos
+    for video in videos:
+        cached_index['by_key'][video['video_key']] = video
+    return videos
+
+
+def get_videos_cache(category_id=None):
+    """获取指定分类的视频缓存。"""
+    if category_id:
+        _ensure_category_cache(category_id)
     return cached_index
 
 
@@ -199,6 +219,8 @@ def _resolve_video_record(filename=None):
     category_id = request.args.get('category_id', '').strip()
     relative_path = request.args.get('relative_path', '').strip()
 
+    if category_id:
+        get_videos_cache(category_id)
     cache = get_videos_cache()
     if video_key:
         video = cache['by_key'].get(video_key)
@@ -212,7 +234,7 @@ def _resolve_video_record(filename=None):
             if video['relative_path'] == normalized_relative_path:
                 return video
 
-        category = next((item for item in _public_categories() if item['id'] == category_id), None)
+        category = _get_category(category_id)
         if not category:
             raise FileNotFoundError('Video not found')
 
@@ -223,7 +245,7 @@ def _resolve_video_record(filename=None):
         return _build_video_record(category, file_path, normalized_relative_path, video_key=video_key)
 
     if filename:
-        matches = [video for video in cache['videos'] if video['name'] == filename]
+        matches = [video for video in cache['by_key'].values() if video['name'] == filename]
         if len(matches) == 1:
             return matches[0]
 
@@ -231,7 +253,7 @@ def _resolve_video_record(filename=None):
 
 
 def _list_payload(videos, active_category_id, subfolders, pagination):
-    cache = get_videos_cache()
+    cache = get_videos_cache(active_category_id)
     return {
         'videos': videos,
         'folder_exists': cache['folder_exists_map'].get(active_category_id, True),
@@ -257,7 +279,7 @@ def get_videos():
         categories = _public_categories()
         active_category_id = category_id or config.ACTIVE_CATEGORY_ID or (categories[0]['id'] if categories else '')
 
-        cache = get_videos_cache()
+        cache = get_videos_cache(active_category_id)
         videos = cache['videos_by_category'].get(active_category_id, [])
 
         normalized_subfolder = _normalize_relative_path(subfolder)
@@ -446,13 +468,12 @@ def get_network_info():
 
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
-    cache = get_videos_cache()
     return jsonify({
         'success': True,
         'data': {
             'categories': _public_categories(),
             'active_category_id': config.ACTIVE_CATEGORY_ID,
-            'folder_exists_map': cache['folder_exists_map']
+            'folder_exists_map': cached_index['folder_exists_map']
         }
     })
 
@@ -471,10 +492,9 @@ def refresh_videos():
         new_config = reload_video_config()
         print(f"[OK] Reloaded {len(new_config['categories'])} categories")
 
-        cached_index = None
-        index = get_videos_cache()
-        video_count = len(index['videos'])
-        print(f"[OK] Found {video_count} videos across all categories")
+        _clear_videos_cache()
+        video_count = 0
+        print("[OK] Cleared category caches")
         print("=" * 60)
 
         return jsonify({
@@ -487,7 +507,7 @@ def refresh_videos():
         })
     except ScanTimeoutError as e:
         print(f"[ERR] Failed to refresh video cache: {e}")
-        cached_index = None
+        _clear_videos_cache()
         return jsonify({
             'success': False,
             'error': str(e)
@@ -506,7 +526,7 @@ def refresh_videos():
 def health_check():
     """健康检查接口"""
     config_path = config.get_config_path()
-    cached_video_count = len(cached_index['videos']) if cached_index else None
+    cached_video_count = _get_cached_video_count()
     return jsonify({
         'success': True,
         'message': 'Server is running',
@@ -629,7 +649,8 @@ if __name__ == '__main__':
         print(f"Created video folder: {config.VIDEO_FOLDER}")
 
     try:
-        video_count = len(get_videos_cache()['videos'])
+        active_category_id = config.ACTIVE_CATEGORY_ID or (_public_categories()[0]['id'] if _public_categories() else '')
+        video_count = len(get_videos_cache(active_category_id)['videos_by_category'].get(active_category_id, []))
         print(f"Videos found: {video_count}")
     except Exception as e:
         print(f"Error scanning videos: {e}")
